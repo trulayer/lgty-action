@@ -1,0 +1,7 @@
+/dist/
+/lgty-action
+*.out
+*.test
+.env
+.env.*
+.DS_Store

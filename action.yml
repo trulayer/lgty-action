@@ -1,0 +1,32 @@
+name: "LGTY Production Impact metadata"
+description: "Send LGTY read-only database METADATA (row-count estimates, sizes, dependency edges). Never reads or sends row data."
+author: "LGTY"
+branding:
+  icon: "database"
+  color: "blue"
+
+inputs:
+  backend-url:
+    description: "LGTY ingest base URL."
+    required: false
+    default: "https://api.lgty.ai"
+  db-dsn:
+    description: "Read-only Postgres DSN. Use a scoped, read-only role and store it as a CI secret."
+    required: false
+  db-kind:
+    description: "Database engine (postgres)."
+    required: false
+    default: "postgres"
+  dry-run:
+    description: "If true, print the exact metadata payload instead of sending it."
+    required: false
+    default: "false"
+
+runs:
+  using: "docker"
+  image: "Dockerfile"
+  env:
+    LGTY_BACKEND_URL: ${{ inputs.backend-url }}
+    LGTY_DB_DSN: ${{ inputs.db-dsn }}
+    LGTY_DB_KIND: ${{ inputs.db-kind }}
+    LGTY_DRY_RUN: ${{ inputs.dry-run }}
