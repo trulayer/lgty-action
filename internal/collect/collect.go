@@ -5,7 +5,13 @@ package collect
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"sort"
 	"time"
+
+	// Registers the "pgx" database/sql driver. This is the single direct
+	// dependency of this action; the guarded queries below run through it.
+	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
 // Metadata is the ONLY thing this action sends. Table names, row-count
@@ -92,12 +98,129 @@ func Run(ctx context.Context, dbDSN string) (Metadata, error) {
 	}
 	defer db.Close()
 
-	// TODO(LGT-): execute the guarded queries via db and populate md. The
-	// queries and the guard — the load-bearing, trust-critical parts — are
-	// complete above; wiring them to pgx is the remaining Phase-0 step.
-	_ = db
-	_ = ctx
+	tables, err := collectTables(ctx, db)
+	if err != nil {
+		return md, fmt.Errorf("collect tables: %w", err)
+	}
+	md.Tables = tables
+
+	deps, err := collectDeps(ctx, db)
+	if err != nil {
+		return md, fmt.Errorf("collect dependencies: %w", err)
+	}
+	md.Deps = deps
+
 	return md, nil
+}
+
+// queryGuarded runs a query only after it passes the metadata-only guard. Run
+// already asserts the full query set up front; asserting again here means no
+// query can reach the database without clearing the guard, even if the call
+// sites change. Callers own closing the returned *sql.Rows.
+func queryGuarded(ctx context.Context, db Querier, query string) (*sql.Rows, error) {
+	if err := AssertMetadataOnly(query); err != nil {
+		return nil, err
+	}
+	return db.QueryContext(ctx, query)
+}
+
+// collectTables runs qRowEstimates and qColumnCounts and joins them by
+// (schema, name). Row estimates define the set of tables we report (ordinary
+// tables in non-system schemas); column counts are attached where they match.
+// Output is sorted by (schema, name) so the payload is deterministic.
+func collectTables(ctx context.Context, db Querier) ([]TableMeta, error) {
+	byKey := map[string]*TableMeta{}
+
+	rows, err := queryGuarded(ctx, db, qRowEstimates)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var t TableMeta
+		if err := rows.Scan(&t.Schema, &t.Name, &t.RowEstimate, &t.TotalBytes); err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		tc := t
+		byKey[t.Schema+"."+t.Name] = &tc
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+
+	crows, err := queryGuarded(ctx, db, qColumnCounts)
+	if err != nil {
+		return nil, err
+	}
+	for crows.Next() {
+		var schema, name string
+		var cols int
+		if err := crows.Scan(&schema, &name, &cols); err != nil {
+			_ = crows.Close()
+			return nil, err
+		}
+		if t, ok := byKey[schema+"."+name]; ok {
+			t.ColumnCount = cols
+		}
+	}
+	if err := crows.Err(); err != nil {
+		_ = crows.Close()
+		return nil, err
+	}
+	if err := crows.Close(); err != nil {
+		return nil, err
+	}
+
+	out := make([]TableMeta, 0, len(byKey))
+	for _, t := range byKey {
+		out = append(out, *t)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Schema != out[j].Schema {
+			return out[i].Schema < out[j].Schema
+		}
+		return out[i].Name < out[j].Name
+	})
+	return out, nil
+}
+
+// collectDeps runs qDependencies and returns the foreign-key edges, sorted for
+// deterministic output.
+func collectDeps(ctx context.Context, db Querier) ([]DepEdge, error) {
+	rows, err := queryGuarded(ctx, db, qDependencies)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	out := []DepEdge{}
+	for rows.Next() {
+		var d DepEdge
+		if err := rows.Scan(&d.FromSchema, &d.FromTable, &d.ToSchema, &d.ToTable); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].FromSchema != out[j].FromSchema {
+			return out[i].FromSchema < out[j].FromSchema
+		}
+		if out[i].FromTable != out[j].FromTable {
+			return out[i].FromTable < out[j].FromTable
+		}
+		if out[i].ToSchema != out[j].ToSchema {
+			return out[i].ToSchema < out[j].ToSchema
+		}
+		return out[i].ToTable < out[j].ToTable
+	})
+	return out, nil
 }
 
 // open returns a read-only-intended *sql.DB. The pgx stdlib driver is added via
