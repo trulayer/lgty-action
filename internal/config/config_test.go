@@ -28,8 +28,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if c.DBKind != "postgres" {
 		t.Errorf("DBKind = %q, want postgres", c.DBKind)
 	}
-	if c.OIDCAudience != "lgty" {
-		t.Errorf("OIDCAudience = %q, want lgty", c.OIDCAudience)
+	if c.OIDCAudience != "https://api.lgty.ai/ingest/metadata" {
+		t.Errorf("OIDCAudience = %q, want the LGT-36 ingest URI", c.OIDCAudience)
 	}
 	if !c.DryRun {
 		t.Error("DryRun = false, want true")

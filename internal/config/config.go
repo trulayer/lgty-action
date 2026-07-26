@@ -16,7 +16,7 @@ type Config struct {
 	Repo         string // owner/name of the repo being onboarded
 	Workspace    string // LGTY workspace identifier
 	DryRun       bool   // if true, print the payload instead of sending it
-	OIDCAudience string // audience claim requested for the OIDC token
+	OIDCAudience string // audience requested for the OIDC token; MUST match the backend's expected `aud` (LGT-36 §1)
 }
 
 // Load reads configuration from LGTY_* environment variables (which the GitHub
@@ -29,7 +29,7 @@ func Load() (Config, error) {
 		Repo:         env("LGTY_REPO", os.Getenv("GITHUB_REPOSITORY")),
 		Workspace:    os.Getenv("LGTY_WORKSPACE"),
 		DryRun:       boolEnv("LGTY_DRY_RUN", false),
-		OIDCAudience: env("LGTY_OIDC_AUDIENCE", "lgty"),
+		OIDCAudience: env("LGTY_OIDC_AUDIENCE", "https://api.lgty.ai/ingest/metadata"),
 	}
 	if c.DBKind != "postgres" {
 		return c, errors.New("only postgres is supported in this iteration")
