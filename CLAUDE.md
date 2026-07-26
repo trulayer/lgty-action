@@ -26,6 +26,7 @@ action.yml Dockerfile      Docker-based GitHub Action
 - **Dependency-free** for now (stdlib only) so the build is trivially auditable. The one planned dependency is `github.com/jackc/pgx/v5` (registered via `import _ ".../stdlib"`) when the guarded queries are wired to a real DB — marked `TODO(LGT-)`.
 - `make build` produces a static binary; `make fmt vet test` before a PR.
 - Every change goes through a PR (no direct push to `main`). CI must be green (`gofmt`, `vet`, `build`, `test`).
+- Run `make githooks` once after cloning to wire local hooks (`.githooks/`, via `core.hooksPath`): pre-commit runs `gofmt`+`go vet`, pre-push runs `build`+`test` — catches CI failures before they leave your machine.
 
 ## Project management
 
