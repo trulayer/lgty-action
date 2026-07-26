@@ -1,0 +1,80 @@
+name: release
+
+# Tag-triggered, zero manual steps: pushing vX.Y.Z produces a signed,
+# checksummed, SBOM'd, attested GitHub Release. See .goreleaser.yaml for the
+# build/checksum/sign/SBOM pipeline itself (GoReleaser is the orchestrator
+# per security-c's LGT-37 spec).
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    # Least privilege for this job specifically — nothing here holds more
+    # scope than the release phase needs, and there is no long-lived secret
+    # anywhere in this workflow: GITHUB_TOKEN is ephemeral per-run, and
+    # cosign/attestation both use the run's own OIDC identity (keyless).
+    permissions:
+      id-token: write # mint the OIDC token for cosign + attestation
+      contents: write # publish the GitHub Release
+      attestations: write # actions/attest-build-provenance
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # full history: GoReleaser needs tags for changelog
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          check-latest: false
+
+      # Defense in depth: the PR gate already enforces this, but a tampered
+      # go.sum should never be able to reach a public release either.
+      - name: Verify modules
+        run: go mod verify
+        env:
+          GOFLAGS: -mod=readonly
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: "v3.1.2"
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+
+      # Reproducibility: pin the embedded build timestamp to the tagged
+      # commit's own timestamp, not "whenever CI happened to run", so two
+      # runs of the same tag produce byte-identical archives.
+      - name: Set SOURCE_DATE_EPOCH from the tagged commit
+        run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@f06c13b6b1a9625abc9e6e439d9c05a8f2190e94 # v7.2.3
+        with:
+          distribution: goreleaser
+          version: "v2.17.0"
+          args: release --clean
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # GitHub-native, keyless SLSA v1 build provenance attestation binding
+      # every released archive + the checksum file to this exact workflow,
+      # commit, and runner. ~3 lines, no secret, no maintenance burden.
+      # (The heavier slsa-github-generator reusable-workflow path is
+      # deliberately deferred for v1 — see the LGT-37 spec, §5 — not
+      # second-guessed here.)
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/checksums.txt

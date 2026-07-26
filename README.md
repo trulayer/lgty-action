@@ -70,6 +70,36 @@ For the strictest supply-chain posture — worth considering for this action spe
 
 Never pin to `@main` — it can change under you at any time, in ways this README hasn't necessarily caught up to yet.
 
+### Verify a release
+
+Every `vX.Y.Z` tag produces a GitHub Release with, for each platform: the binary archive, a shared `checksums.txt`, a **cosign keyless (Sigstore) signature bundle** over that checksum file (`checksums.txt.bundle`), and an **SPDX 2.3 JSON SBOM** per archive. Nothing is signed with a stored key — every signature and attestation below is keyless, backed by the release workflow's own short-lived GitHub OIDC identity, consistent with this repo's "no long-lived secrets" law.
+
+**1. Verify the checksum file's cosign signature** (this transitively covers every archive, since each archive is a line in `checksums.txt`):
+
+```bash
+cosign verify-blob \
+  --bundle checksums.txt.bundle \
+  --certificate-identity-regexp '^https://github\.com/trulayer/lgty-action/\.github/workflows/release\.yml@refs/tags/v.*$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  checksums.txt
+```
+
+Pinning `--certificate-identity-regexp` to this repo's own release workflow means a signature from a different repo or workflow fails verification — a signature nobody checks the identity of is not a control.
+
+**2. Confirm the archive you downloaded matches `checksums.txt`:**
+
+```bash
+shasum -a 256 -c checksums.txt --ignore-missing
+```
+
+**3. Verify GitHub's native build-provenance attestation** (binds the artifact digest to this exact workflow run, commit, and runner — separate from, and in addition to, the cosign signature above):
+
+```bash
+gh attestation verify lgty-action_vX.Y.Z_linux_amd64.tar.gz --repo trulayer/lgty-action
+```
+
+All three checks are independent; running all three (not just one) is the point — signature, checksum, and provenance each catch a different failure mode.
+
 ## Run it locally
 
 ```bash
@@ -90,6 +120,6 @@ LGTY_DRY_RUN=true LGTY_DB_DSN='postgres://readonly@localhost/app' dist/lgty-acti
 
 The metadata pipeline is complete: OIDC fetch, the guard, the three guarded queries wired to a real Postgres database, and the ingest client, all with unit + integration test coverage (`make test`; the integration test needs a real Postgres via `LGTY_TEST_DB_DSN` and is skipped otherwise).
 
-What's still outstanding is release mechanics, not functionality: a tagged, signed release (see [Versioning](#versioning)) and the GitHub Marketplace submission itself, which needs org-admin rights and Developer Agreement acceptance — a one-time human step this repo's automation doesn't do for you.
+Release automation is also complete: tagging `vX.Y.Z` produces a signed, checksummed, SBOM'd, attested GitHub Release with zero manual steps (see [Verify a release](#verify-a-release)). What's still outstanding is the GitHub Marketplace submission itself, which needs org-admin rights and Developer Agreement acceptance — a one-time human step this repo's automation doesn't do for you.
 
 Tracked in Linear under **LGT-**.
