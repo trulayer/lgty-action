@@ -1,5 +1,5 @@
 name: "LGTY Production Impact metadata"
-description: "Send LGTY read-only database METADATA (row-count estimates, sizes, dependency edges). Never reads or sends row data."
+description: "Sends LGTY read-only DB metadata (row estimates, sizes, FK edges) via OIDC to power Production Impact. Never row data."
 author: "LGTY"
 branding:
   icon: "database"
@@ -11,14 +11,14 @@ inputs:
     required: false
     default: "https://api.lgty.ai"
   db-dsn:
-    description: "Read-only Postgres DSN. Use a scoped, read-only role and store it as a CI secret."
+    description: "Read-only Postgres DSN, scoped to a read-only role. Store it as a CI secret. Required unless dry-run is true."
     required: false
   db-kind:
-    description: "Database engine (postgres)."
+    description: "Database engine. Only \"postgres\" is supported currently."
     required: false
     default: "postgres"
   dry-run:
-    description: "If true, print the exact metadata payload instead of sending it."
+    description: "If true, print the exact metadata payload to the job log instead of sending it. No OIDC token or database connection is required in this mode."
     required: false
     default: "false"
 
@@ -30,3 +30,10 @@ runs:
     LGTY_DB_DSN: ${{ inputs.db-dsn }}
     LGTY_DB_KIND: ${{ inputs.db-kind }}
     LGTY_DRY_RUN: ${{ inputs.dry-run }}
+    # Docker container actions do NOT automatically receive the runner's OIDC
+    # request env vars — they must be forwarded explicitly, or oidc.FetchToken
+    # always fails with "no GitHub Actions OIDC environment found" even when
+    # the job has `permissions: id-token: write`. See README "Use it in GitHub
+    # Actions" for the required permissions block.
+    ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
+    ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
