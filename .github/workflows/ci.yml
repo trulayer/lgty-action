@@ -5,19 +5,74 @@ on:
     branches: [main]
   pull_request:
 
+# Least-privilege default: the PR gate only ever needs to read the repo.
+# The release job (release.yml) is the only workflow that gets write scope.
+permissions:
+  contents: read
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.26"
+          go-version-file: go.mod
+          check-latest: false
+
       - name: gofmt
-        run: test -z "$(gofmt -l .)" || (gofmt -l . && echo "run: make fmt" && exit 1)
+        run: |
+          test -z "$(gofmt -l .)" || (gofmt -l . && echo "run: make fmt" && exit 1)
+
       - name: vet
         run: go vet ./...
+
+      # go.sum is committed (pgx landed in LGT-34). These two steps make an
+      # unpinned/tampered/floating dependency a hard CI failure rather than a
+      # reviewer's manual catch.
+      - name: go mod verify
+        run: go mod verify
+        env:
+          GOFLAGS: -mod=readonly
+
+      - name: go mod tidy drift check
+        run: |
+          go mod tidy
+          git diff --exit-code go.mod go.sum
+
       - name: build
         run: go build ./...
+        env:
+          GOFLAGS: -mod=readonly
+
       - name: test
         run: go test ./...
+        env:
+          GOFLAGS: -mod=readonly
+
+      # Go's own vulnerability scanner: call-graph-aware, so it only flags
+      # vulnerabilities actually reachable from this code — high signal, low
+      # noise for a small CLI. Version pinned deliberately; bump in a
+      # reviewed PR, not via @latest.
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Scoped to the real risk surface for this binary: injection/taint into
+      # the DSN and the guarded query path, OS/exec misuse, and an
+      # accidentally committed credential — not the full rule registry.
+      # Blocking on ERROR severity.
+      - name: semgrep (blocking, ERROR severity)
+        run: semgrep scan --config p/golang --config p/gosec --config p/secrets --severity ERROR --error
+
+      # WARNING+ findings are surfaced in the log but never fail the build.
+      - name: semgrep (advisory, WARNING+ severity)
+        if: always()
+        continue-on-error: true
+        run: semgrep scan --config p/golang --config p/gosec --config p/secrets --severity WARNING --severity ERROR
