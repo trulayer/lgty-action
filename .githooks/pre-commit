@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# pre-commit: runs on every `git commit`. Blocks the commit on any failure.
+# Mirrors the fast checks lgty-action's own CI enforces first (see
+# .github/workflows/ci.yml) and CLAUDE.md's "make fmt vet test" convention —
+# deliberately no golangci-lint here: this repo stays dependency- and
+# tool-minimal for auditability, and CI doesn't run it either.
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+fail() { echo "❌ $*" >&2; exit 1; }
+step() { echo "▶ $*"; }
+
+step "action: gofmt"
+UNFMT="$(gofmt -l .)"
+if [ -n "$UNFMT" ]; then
+  echo "$UNFMT"
+  fail "gofmt found unformatted files — run: make fmt"
+fi
+
+step "action: go vet"
+go vet ./... || fail "go vet failed"
+
+echo "✅ pre-commit checks passed"

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# pre-push: runs on every `git push`. Blocks the push on any failure.
+# This repo has no docker-based integration tier to exclude — `go test ./...`
+# is already the fast, full suite; the full audit (govulncheck, semgrep,
+# go mod tidy/verify drift) stays a CI-only gate.
+set -euo pipefail
+
+ROOT="$(git rev-parse --show-toplevel)"
+cd "$ROOT"
+
+fail() { echo "❌ $*" >&2; exit 1; }
+step() { echo "▶ $*"; }
+
+step "action: build"
+make build || fail "build failed"
+
+step "action: test"
+go test ./... || fail "tests failed"
+
+echo "✅ pre-push checks passed"
