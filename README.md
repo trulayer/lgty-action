@@ -116,6 +116,12 @@ LGTY_DRY_RUN=true LGTY_DB_DSN='postgres://readonly@localhost/app' dist/lgty-acti
 | `LGTY_DB_KIND` / `db-kind` | `postgres` | database engine — only `postgres` is supported currently |
 | `LGTY_DRY_RUN` / `dry-run` | `false` | print the payload instead of sending it; no OIDC token or DB connection required |
 
+This action defines **no step outputs** — it is an uploader, not a gate, and it
+returns no verdict for a later step to branch on. For the precise, versioned
+contract — every input, the exact metadata payload that leaves your perimeter,
+and the exit behavior — see [`docs/inputs-outputs.md`](docs/inputs-outputs.md).
+The [`CHANGELOG`](CHANGELOG.md) records what moves within the `@v1` contract.
+
 ## Status
 
 The metadata pipeline is complete: OIDC fetch, the guard, the three guarded queries wired to a real Postgres database, and the ingest client, all with unit + integration test coverage (`make test`; the integration test needs a real Postgres via `LGTY_TEST_DB_DSN` and is skipped otherwise).
