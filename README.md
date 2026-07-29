@@ -1,5 +1,9 @@
 # lgty-action
 
+[![codecov](https://codecov.io/gh/trulayer/lgty-action/graph/badge.svg?token=02WU2P3FM0)](https://codecov.io/gh/trulayer/lgty-action)
+
+<sub>Coverage is informational and does not gate merges.</sub>
+
 The LGTY **tier-2 metadata uploader**. A single Go binary — one direct dependency, the Postgres driver — that runs in **your** CI, authenticates with a short-lived **OIDC** token (no long-lived secret), and sends LGTY the read-only database **metadata** it needs to power **Production Impact** — table names, row-count **estimates**, sizes, and foreign-key dependency edges.
 
 This repository is **public on purpose.** The value of LGTY's Production Impact is that it never touches your data plane — so the code that talks to your database is open for you to read, audit, and pin.
