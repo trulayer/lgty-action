@@ -25,6 +25,7 @@ type workflowJob struct {
 type workflowStep struct {
 	uses            string
 	run             string
+	ifCondition     string
 	continueOnError string
 	with            map[string]string
 }
@@ -86,6 +87,36 @@ func TestCodecovUploadContractRejectsAdversarialChanges(t *testing.T) {
 			"      - name: govulncheck\n        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...\n\n      - name: Upload coverage reports to Codecov",
 			1,
 		),
+		"govulncheck continue-on-error": strings.Replace(
+			workflow,
+			"        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
+			"        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...\n        continue-on-error: true",
+			1,
+		),
+		"govulncheck quoted continue-on-error": strings.Replace(
+			workflow,
+			"        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
+			"        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...\n        continue-on-error: \"true\"",
+			1,
+		),
+		"govulncheck skipped": strings.Replace(
+			workflow,
+			"        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
+			"        if: false\n        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
+			1,
+		),
+		"commented govulncheck command": strings.Replace(
+			workflow,
+			"        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
+			"        # run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
+			1,
+		),
+		"flow-style tolerated govulncheck": strings.Replace(
+			workflow,
+			"      - name: govulncheck\n        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
+			"      - {name: govulncheck, run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./..., continue-on-error: true}",
+			1,
+		),
 	}
 
 	for name, mutated := range tests {
@@ -141,6 +172,7 @@ func validateCodecovWorkflow(source string) error {
 
 	var codecovSteps, uploadSteps, downloadSteps []workflowStep
 	govulnJob := ""
+	var govulnStep workflowStep
 	for jobName, job := range contract.jobs {
 		if jobName != "coverage" {
 			if _, hasOIDC := job.permissions["id-token"]; hasOIDC {
@@ -153,6 +185,7 @@ func validateCodecovWorkflow(source string) error {
 					return fmt.Errorf("govulncheck must run exactly once")
 				}
 				govulnJob = jobName
+				govulnStep = step
 			}
 			switch step.uses {
 			case uploadArtifactAction:
@@ -179,6 +212,12 @@ func validateCodecovWorkflow(source string) error {
 	}
 	if govulnJob == "coverage" {
 		return fmt.Errorf("govulncheck must not run in informational OIDC job")
+	}
+	if govulnStep.ifCondition != "" {
+		return fmt.Errorf("govulncheck step must execute unconditionally")
+	}
+	if govulnStep.continueOnError != "" {
+		return fmt.Errorf("govulncheck step must not continue on error")
 	}
 	if contract.jobs[govulnJob].continueOnError != "" &&
 		contract.jobs[govulnJob].continueOnError != "false" {
@@ -328,6 +367,8 @@ func parseWorkflowContract(source string) (workflowContract, string, error) {
 				job.steps[currentStep].uses = value
 			case "run":
 				job.steps[currentStep].run = value
+			case "if":
+				job.steps[currentStep].ifCondition = value
 			case "continue-on-error":
 				job.steps[currentStep].continueOnError = value
 			case "with":
