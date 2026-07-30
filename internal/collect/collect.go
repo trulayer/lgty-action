@@ -65,7 +65,7 @@ FROM information_schema.columns
 GROUP BY table_schema, table_name`
 
 	qDependencies = `
-SELECT tc.table_schema AS from_schema, tc.table_name AS from_table,
+SELECT DISTINCT tc.table_schema AS from_schema, tc.table_name AS from_table,
        ccu.table_schema AS to_schema, ccu.table_name AS to_table
 FROM information_schema.table_constraints tc
 JOIN information_schema.referential_constraints rc
