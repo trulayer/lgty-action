@@ -24,10 +24,12 @@ type workflowJob struct {
 }
 
 type workflowStep struct {
+	name            string
 	uses            string
 	run             string
 	ifCondition     string
 	continueOnError string
+	env             map[string]string
 	with            map[string]string
 }
 
@@ -140,6 +142,37 @@ func TestCodecovUploadContractRejectsAdversarialChanges(t *testing.T) {
 		"aggregate flow mapping": strings.Replace(
 			workflow, "  ci:\n    if: always()\n    needs: [build, semgrep]",
 			"  ci: {if: always(), continue-on-error: true, needs: [build, semgrep]}", 1,
+		),
+		"aggregate run true": strings.Replace(
+			workflow,
+			"          test \"$BUILD_RESULT\" = success\n          test \"$SEMGREP_RESULT\" = success",
+			"          true", 1,
+		),
+		"aggregate missing result assertion": strings.Replace(
+			workflow, "          test \"$SEMGREP_RESULT\" = success\n", "", 1,
+		),
+		"aggregate renamed result assertion": strings.Replace(
+			workflow, "test \"$BUILD_RESULT\" = success", "test \"$BUILD_STATUS\" = success", 1,
+		),
+		"aggregate step continue-on-error": strings.Replace(
+			workflow,
+			"      - name: Require every blocking CI job\n        env:",
+			"      - name: Require every blocking CI job\n        continue-on-error: true\n        env:", 1,
+		),
+		"aggregate step condition": strings.Replace(
+			workflow,
+			"      - name: Require every blocking CI job\n        env:",
+			"      - name: Require every blocking CI job\n        if: false\n        env:", 1,
+		),
+		"aggregate misleading comment": strings.Replace(
+			workflow,
+			"          test \"$BUILD_RESULT\" = success",
+			"          # test \"$BUILD_RESULT\" = success\n          true", 1,
+		),
+		"aggregate env indirection": strings.Replace(
+			workflow,
+			"          BUILD_RESULT: ${{ needs.build.result }}",
+			"          BUILD_STATUS: ${{ needs.build.result }}", 1,
 		),
 	}
 
@@ -259,6 +292,30 @@ func validateCodecovWorkflow(source string) error {
 	}
 	if aggregate.continueOnError != "" {
 		return fmt.Errorf("aggregate ci job must not continue on error")
+	}
+	if len(aggregate.steps) != 1 {
+		return fmt.Errorf("aggregate ci must contain exactly one assertion step")
+	}
+	aggregateStep := aggregate.steps[0]
+	if aggregateStep.name != "Require every blocking CI job" ||
+		aggregateStep.ifCondition != "" ||
+		aggregateStep.continueOnError != "" ||
+		aggregateStep.uses != "" {
+		return fmt.Errorf("aggregate ci assertion step must remain unconditional and blocking")
+	}
+	for _, dependency := range []string{"build", "semgrep"} {
+		envName := strings.ToUpper(dependency) + "_RESULT"
+		wantEnv := "${{ needs." + dependency + ".result }}"
+		if aggregateStep.env[envName] != wantEnv {
+			return fmt.Errorf("aggregate ci must bind %s to %s", envName, wantEnv)
+		}
+	}
+	if len(aggregateStep.env) != 2 {
+		return fmt.Errorf("aggregate ci assertion environment must contain only dependency results")
+	}
+	const wantAggregateRun = "test \"$BUILD_RESULT\" = success\ntest \"$SEMGREP_RESULT\" = success"
+	if aggregateStep.run != wantAggregateRun {
+		return fmt.Errorf("aggregate ci must assert every exact dependency result")
 	}
 	if len(uploadSteps) != 1 ||
 		uploadSteps[0].continueOnError != "true" ||
@@ -380,32 +437,46 @@ func parseWorkflowContract(source string) (workflowContract, string, error) {
 				job.permissions[key] = value
 				contract.jobs[currentJob] = job
 			}
-		case currentJob != "" && (section == "steps" || section == "step-with") && indent == 6 && strings.HasPrefix(text, "- "):
-			step := workflowStep{with: map[string]string{}}
+		case currentJob != "" && strings.HasPrefix(section, "step") && indent == 6 && strings.HasPrefix(text, "- "):
+			step := workflowStep{env: map[string]string{}, with: map[string]string{}}
 			job := contract.jobs[currentJob]
 			job.steps = append(job.steps, step)
 			currentStep = len(job.steps) - 1
 			section = "steps"
 			contract.jobs[currentJob] = job
-			if key, value, ok := splitYAMLField(strings.TrimPrefix(text, "- ")); ok && key == "uses" {
-				job.steps[currentStep].uses = value
+			if key, value, ok := splitYAMLField(strings.TrimPrefix(text, "- ")); ok {
+				switch key {
+				case "name":
+					job.steps[currentStep].name = value
+				case "uses":
+					job.steps[currentStep].uses = value
+				}
 				contract.jobs[currentJob] = job
 			}
-		case currentJob != "" && section == "steps" && currentStep >= 0 && indent == 8:
+		case currentJob != "" && strings.HasPrefix(section, "step") && currentStep >= 0 && indent == 8:
 			key, value, ok := splitYAMLField(text)
 			if !ok {
 				continue
 			}
 			job := contract.jobs[currentJob]
 			switch key {
+			case "name":
+				job.steps[currentStep].name = value
 			case "uses":
 				job.steps[currentStep].uses = value
 			case "run":
-				job.steps[currentStep].run = value
+				if value == "|" || value == ">" || value == "|-" || value == ">-" {
+					job.steps[currentStep].run = ""
+					section = "step-run"
+				} else {
+					job.steps[currentStep].run = value
+				}
 			case "if":
 				job.steps[currentStep].ifCondition = value
 			case "continue-on-error":
 				job.steps[currentStep].continueOnError = value
+			case "env":
+				section = "step-env"
 			case "with":
 				section = "step-with"
 			}
@@ -417,6 +488,20 @@ func parseWorkflowContract(source string) (workflowContract, string, error) {
 				job.steps[currentStep].with[key] = value
 				contract.jobs[currentJob] = job
 			}
+		case currentJob != "" && section == "step-env" && currentStep >= 0 && indent == 10:
+			key, value, ok := splitYAMLField(text)
+			if ok {
+				job := contract.jobs[currentJob]
+				job.steps[currentStep].env[key] = value
+				contract.jobs[currentJob] = job
+			}
+		case currentJob != "" && section == "step-run" && currentStep >= 0 && indent >= 10:
+			job := contract.jobs[currentJob]
+			if job.steps[currentStep].run != "" {
+				job.steps[currentStep].run += "\n"
+			}
+			job.steps[currentStep].run += text
+			contract.jobs[currentJob] = job
 		}
 	}
 	return contract, strings.Join(cleaned, "\n"), nil
