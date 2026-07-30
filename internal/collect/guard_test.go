@@ -1,6 +1,9 @@
 package collect
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // The guard is the trust-critical code: it must accept exactly the fixed
 // metadata query set and reject anything that could read, mutate, or exfiltrate
@@ -66,5 +69,42 @@ func TestAssertMetadataOnly(t *testing.T) {
 				t.Fatalf("expected acceptance, got error %v for query %q", err, tt.query)
 			}
 		})
+	}
+}
+
+// TestAssertMetadataOnly_ForbiddenFileReadsOnAllowlistedSource is deliberately
+// narrower than the table above. A file-read query without a FROM clause could
+// be rejected merely because it names no allowlisted source, leaving the
+// forbidden-keyword backstop untested. These queries satisfy the source
+// allowlist and must still be rejected specifically by that backstop.
+func TestAssertMetadataOnly_ForbiddenFileReadsOnAllowlistedSource(t *testing.T) {
+	queries := []string{
+		"SELECT pg_read_file('/etc/passwd') FROM pg_class",
+		"SELECT pg_read_binary_file('/etc/passwd') FROM pg_class",
+	}
+
+	for _, query := range queries {
+		if !referencesAllowedSource(strings.ToLower(query)) {
+			t.Fatalf("test precondition failed: query must reference an allowlisted source: %q", query)
+		}
+		err := AssertMetadataOnly(query)
+		if err == nil {
+			t.Fatalf("expected forbidden file read to be rejected: %q", query)
+		}
+		if !strings.Contains(err.Error(), "forbidden keyword") {
+			t.Fatalf("expected forbidden-keyword rejection, got %v for query %q", err, query)
+		}
+	}
+
+	// Mutation check: removing only the forbidden-keyword backstop makes both
+	// queries pass the remaining SELECT and allowlisted-source checks. Restore
+	// the package global before this test returns.
+	savedForbidden := forbidden
+	forbidden = nil
+	t.Cleanup(func() { forbidden = savedForbidden })
+	for _, query := range queries {
+		if err := AssertMetadataOnly(query); err != nil {
+			t.Fatalf("without the forbidden backstop, allowlisted query should pass; got %v for %q", err, query)
+		}
 	}
 }
