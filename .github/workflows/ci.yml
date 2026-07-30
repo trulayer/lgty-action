@@ -110,3 +110,20 @@ jobs:
         if: always()
         continue-on-error: true
         run: semgrep scan --config p/golang --config p/gosec --config p/secrets --severity WARNING --severity ERROR
+
+  # Stable umbrella context for branch protection. `if: always()` makes this
+  # run even when an upstream job fails, while the explicit result checks keep
+  # cancellation, failure, or a skipped security/build job fail-closed.
+  ci:
+    if: always()
+    needs: [build, semgrep]
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Require every blocking CI job
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          SEMGREP_RESULT: ${{ needs.semgrep.result }}
+        run: |
+          test "$BUILD_RESULT" = success
+          test "$SEMGREP_RESULT" = success
