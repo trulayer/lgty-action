@@ -30,7 +30,8 @@ func TestRun_DryRunWithRealPostgres(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	schema := fmt.Sprintf("lgty_action_full_run_test_%d", time.Now().UnixNano())
-	seedFullRunDB(ctx, t, dsn, schema)
+	peerSchema := schema + "_peer"
+	seedFullRunDB(ctx, t, dsn, schema, peerSchema)
 
 	t.Setenv("LGTY_DB_DSN", dsn)
 	t.Setenv("LGTY_DRY_RUN", "true")
@@ -43,6 +44,14 @@ func TestRun_DryRunWithRealPostgres(t *testing.T) {
 	collectedAt := time.Date(2026, time.July, 30, 12, 34, 56, 0, time.FixedZone("test", -7*60*60))
 	if err := run(ctx, &output, func() time.Time { return collectedAt }); err != nil {
 		t.Fatalf("run dry-run against Postgres: %v", err)
+	}
+	var repeated bytes.Buffer
+	if err := run(ctx, &repeated, func() time.Time { return collectedAt }); err != nil {
+		t.Fatalf("repeat dry-run against Postgres: %v", err)
+	}
+	if !bytes.Equal(output.Bytes(), repeated.Bytes()) {
+		t.Fatalf("same database + clock produced different JSON\nfirst:\n%s\nsecond:\n%s",
+			output.String(), repeated.String())
 	}
 	if strings.Contains(output.String(), fullRunSecret) {
 		t.Fatal("raw row value leaked into dry-run payload")
@@ -85,18 +94,24 @@ func TestRun_DryRunWithRealPostgres(t *testing.T) {
 	if !foundTable {
 		t.Fatalf("missing %s.customers metadata: %+v", schema, md.Tables)
 	}
+	relevantDeps := make([]collect.DepEdge, 0, 2)
 	for _, dep := range md.Deps {
-		if dep.FromSchema == schema && dep.FromTable == "orders" &&
-			dep.ToSchema == schema && dep.ToTable == "customers" {
-			return
+		if dep.FromSchema == schema || dep.FromSchema == peerSchema {
+			relevantDeps = append(relevantDeps, dep)
 		}
 	}
-	t.Fatalf("missing %s.orders -> customers dependency: %+v", schema, md.Deps)
+	wantDeps := []collect.DepEdge{
+		{FromSchema: schema, FromTable: "orders", ToSchema: schema, ToTable: "customers"},
+		{FromSchema: peerSchema, FromTable: "orders", ToSchema: peerSchema, ToTable: "customers"},
+	}
+	if !equalDeps(relevantDeps, wantDeps) {
+		t.Fatalf("dependency set = %+v, want exactly %+v; all=%+v", relevantDeps, wantDeps, md.Deps)
+	}
 }
 
 const fullRunSecret = "raw-customer-value-must-never-leave"
 
-func seedFullRunDB(ctx context.Context, t *testing.T, dsn, schema string) {
+func seedFullRunDB(ctx context.Context, t *testing.T, dsn, schema, peerSchema string) {
 	t.Helper()
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -114,6 +129,13 @@ func seedFullRunDB(ctx context.Context, t *testing.T, dsn, schema string) {
 		`INSERT INTO ` + schema + `.orders VALUES (1, 1)`,
 		`ANALYZE ` + schema + `.customers`,
 		`ANALYZE ` + schema + `.orders`,
+		`CREATE SCHEMA ` + peerSchema,
+		`CREATE TABLE ` + peerSchema + `.customers (id bigint PRIMARY KEY, private_value text)`,
+		`CREATE TABLE ` + peerSchema + `.orders (id bigint PRIMARY KEY, customer_id bigint REFERENCES ` + peerSchema + `.customers(id))`,
+		`INSERT INTO ` + peerSchema + `.customers VALUES (1, 'peer-private-value')`,
+		`INSERT INTO ` + peerSchema + `.orders VALUES (1, 1)`,
+		`ANALYZE ` + peerSchema + `.customers`,
+		`ANALYZE ` + peerSchema + `.orders`,
 	}
 	for _, statement := range statements {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
@@ -125,6 +147,19 @@ func seedFullRunDB(ctx context.Context, t *testing.T, dsn, schema string) {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
 		_, _ = db.ExecContext(cleanupCtx, `DROP SCHEMA IF EXISTS `+schema+` CASCADE`)
+		_, _ = db.ExecContext(cleanupCtx, `DROP SCHEMA IF EXISTS `+peerSchema+` CASCADE`)
 		_ = db.Close()
 	})
+}
+
+func equalDeps(got, want []collect.DepEdge) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
 }

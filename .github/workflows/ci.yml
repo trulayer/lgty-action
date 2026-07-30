@@ -64,7 +64,12 @@ jobs:
           GOFLAGS: -mod=readonly
 
       - name: test
-        run: go test -covermode=atomic -coverprofile=coverage.out ./...
+        run: go test -count=1 -covermode=atomic -coverprofile=coverage.out ./...
+        env:
+          GOFLAGS: -mod=readonly
+
+      - name: test (race)
+        run: go test -race -count=1 ./...
         env:
           GOFLAGS: -mod=readonly
 

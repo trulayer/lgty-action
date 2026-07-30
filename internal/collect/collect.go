@@ -68,8 +68,14 @@ GROUP BY table_schema, table_name`
 SELECT tc.table_schema AS from_schema, tc.table_name AS from_table,
        ccu.table_schema AS to_schema, ccu.table_name AS to_table
 FROM information_schema.table_constraints tc
-JOIN information_schema.referential_constraints rc ON rc.constraint_name = tc.constraint_name
-JOIN information_schema.key_column_usage ccu ON ccu.constraint_name = rc.unique_constraint_name
+JOIN information_schema.referential_constraints rc
+  ON rc.constraint_catalog = tc.constraint_catalog
+ AND rc.constraint_schema = tc.constraint_schema
+ AND rc.constraint_name = tc.constraint_name
+JOIN information_schema.key_column_usage ccu
+  ON ccu.constraint_catalog = rc.unique_constraint_catalog
+ AND ccu.constraint_schema = rc.unique_constraint_schema
+ AND ccu.constraint_name = rc.unique_constraint_name
 WHERE tc.constraint_type = 'FOREIGN KEY'`
 )
 
