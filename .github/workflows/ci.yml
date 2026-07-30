@@ -12,6 +12,8 @@ permissions:
 
 jobs:
   build:
+    permissions:
+      contents: read
     runs-on: ubuntu-latest
     services:
       postgres:
@@ -68,21 +70,21 @@ jobs:
         env:
           GOFLAGS: -mod=readonly
 
+      # This artifact is inert test output. The unprivileged build job cannot
+      # mint OIDC tokens; publication happens in the isolated job below.
+      - name: Store coverage report
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        continue-on-error: true
+        with:
+          name: coverage-report
+          path: coverage.out
+          if-no-files-found: error
+          retention-days: 1
+
       - name: test (race)
         run: go test -race -count=1 ./...
         env:
           GOFLAGS: -mod=readonly
-
-      # Informational only (LGT-220): never gates a merge. `fail_ci_if_error`
-      # is left at its default (false) and the step is continue-on-error, so a
-      # Codecov outage can't block an unrelated PR on this public repo.
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
-        continue-on-error: true
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          slug: trulayer/lgty-action
-          files: ./coverage.out
 
       # Go's own vulnerability scanner: call-graph-aware, so it only flags
       # vulnerabilities actually reachable from this code — high signal, low
@@ -90,6 +92,31 @@ jobs:
       # reviewed PR, not via @latest.
       - name: govulncheck
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+
+  # Isolate the only OIDC permission from every command that builds or tests
+  # pull-request code. The input is the inert coverage artifact above. There
+  # are no repository secrets, so fork PRs follow the same safe path; inability
+  # to publish is informational and cannot affect the blocking `ci` job.
+  coverage:
+    needs: build
+    continue-on-error: true
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download coverage report
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: coverage-report
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac # v5.5.5
+        continue-on-error: true
+        with:
+          use_oidc: true
+          slug: trulayer/lgty-action
+          files: ./coverage.out
 
   semgrep:
     runs-on: ubuntu-latest
@@ -111,9 +138,9 @@ jobs:
         continue-on-error: true
         run: semgrep scan --config p/golang --config p/gosec --config p/secrets --severity WARNING --severity ERROR
 
-  # Stable umbrella context for branch protection. `if: always()` makes this
-  # run even when an upstream job fails, while the explicit result checks keep
-  # cancellation, failure, or a skipped security/build job fail-closed.
+  # Stable umbrella context for branch protection. The exact `if: always()`
+  # makes the job run after a failed dependency; explicit result checks then
+  # keep cancellation, failure, or a skipped security/build job fail-closed.
   ci:
     if: always()
     needs: [build, semgrep]

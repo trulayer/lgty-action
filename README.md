@@ -1,6 +1,6 @@
 # lgty-action
 
-[![codecov](https://codecov.io/gh/trulayer/lgty-action/graph/badge.svg?token=02WU2P3FM0)](https://codecov.io/gh/trulayer/lgty-action)
+[![codecov](https://codecov.io/gh/trulayer/lgty-action/graph/badge.svg)](https://codecov.io/gh/trulayer/lgty-action)
 
 <sub>Coverage is informational and does not gate merges.</sub>
 
