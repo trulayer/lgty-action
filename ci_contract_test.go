@@ -24,6 +24,7 @@ type workflowJob struct {
 
 type workflowStep struct {
 	uses            string
+	run             string
 	continueOnError string
 	with            map[string]string
 }
@@ -60,11 +61,30 @@ func TestCodecovUploadContractRejectsAdversarialChanges(t *testing.T) {
 			workflow, "  build:\n    permissions:\n      contents: read",
 			"  build:\n    permissions:\n      contents: read\n      id-token: write", 1,
 		),
+		"inline permission leaked to build": strings.Replace(
+			workflow, "  build:\n    permissions:\n      contents: read",
+			"  build:\n    permissions: {contents: read, id-token: write}", 1,
+		),
+		"quoted inline permission leaked to build": strings.Replace(
+			workflow, "  build:\n    permissions:\n      contents: read",
+			`  build:
+    permissions: {"contents": read, "id-token": write}`, 1,
+		),
 		"permission leaked to semgrep": strings.Replace(
 			workflow, "  semgrep:\n    runs-on:", "  semgrep:\n    permissions:\n      id-token: write\n    runs-on:", 1,
 		),
 		"permission leaked to aggregate": strings.Replace(
 			workflow, "    permissions: {}\n    steps:", "    permissions:\n      id-token: write\n    steps:", 1,
+		),
+		"govulncheck moved to coverage": strings.Replace(
+			strings.Replace(
+				workflow,
+				"      - name: govulncheck\n        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...\n\n",
+				"", 1,
+			),
+			"      - name: Upload coverage reports to Codecov",
+			"      - name: govulncheck\n        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...\n\n      - name: Upload coverage reports to Codecov",
+			1,
 		),
 	}
 
@@ -115,8 +135,12 @@ func validateCodecovWorkflow(source string) error {
 	if got := formatMap(coverage.permissions); got != "contents=read,id-token=write" {
 		return fmt.Errorf("coverage permissions exceed required minimum: %s", got)
 	}
+	if len(coverage.steps) != 2 {
+		return fmt.Errorf("coverage job may only download and publish the inert artifact")
+	}
 
 	var codecovSteps, uploadSteps, downloadSteps []workflowStep
+	govulnJob := ""
 	for jobName, job := range contract.jobs {
 		if jobName != "coverage" {
 			if _, hasOIDC := job.permissions["id-token"]; hasOIDC {
@@ -124,6 +148,12 @@ func validateCodecovWorkflow(source string) error {
 			}
 		}
 		for _, step := range job.steps {
+			if step.run == "go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./..." {
+				if govulnJob != "" {
+					return fmt.Errorf("govulncheck must run exactly once")
+				}
+				govulnJob = jobName
+			}
 			switch step.uses {
 			case uploadArtifactAction:
 				if jobName != "build" {
@@ -143,6 +173,20 @@ func validateCodecovWorkflow(source string) error {
 				codecovSteps = append(codecovSteps, step)
 			}
 		}
+	}
+	if govulnJob == "" {
+		return fmt.Errorf("blocking govulncheck step not found")
+	}
+	if govulnJob == "coverage" {
+		return fmt.Errorf("govulncheck must not run in informational OIDC job")
+	}
+	if contract.jobs[govulnJob].continueOnError != "" &&
+		contract.jobs[govulnJob].continueOnError != "false" {
+		return fmt.Errorf("govulncheck job must remain blocking")
+	}
+	aggregate, ok := contract.jobs["ci"]
+	if !ok || !inlineListContains(aggregate.needs, govulnJob) {
+		return fmt.Errorf("aggregate ci must gate on govulncheck job %q", govulnJob)
 	}
 	if len(uploadSteps) != 1 ||
 		uploadSteps[0].continueOnError != "true" ||
@@ -233,9 +277,17 @@ func parseWorkflowContract(source string) (workflowContract, string, error) {
 			}
 			switch key {
 			case "permissions":
-				section = "job-permissions"
-				if value == "{}" {
+				if strings.HasPrefix(value, "{") {
+					parsed, err := parseFlowMap(value)
+					if err != nil {
+						return contract, strings.Join(cleaned, "\n"), fmt.Errorf("invalid permissions at line %d: %w", lineNumber+1, err)
+					}
+					job.permissions = parsed
 					section = ""
+				} else if value != "" {
+					return contract, strings.Join(cleaned, "\n"), fmt.Errorf("unsupported permissions syntax at line %d", lineNumber+1)
+				} else {
+					section = "job-permissions"
 				}
 			case "steps":
 				section = "steps"
@@ -274,6 +326,8 @@ func parseWorkflowContract(source string) (workflowContract, string, error) {
 			switch key {
 			case "uses":
 				job.steps[currentStep].uses = value
+			case "run":
+				job.steps[currentStep].run = value
 			case "continue-on-error":
 				job.steps[currentStep].continueOnError = value
 			case "with":
@@ -312,7 +366,7 @@ func splitYAMLField(text string) (string, string, bool) {
 	if !ok {
 		return "", "", false
 	}
-	return strings.TrimSpace(key), strings.Trim(strings.TrimSpace(value), `"'`), true
+	return strings.Trim(strings.TrimSpace(key), `"'`), strings.Trim(strings.TrimSpace(value), `"'`), true
 }
 
 func formatMap(values map[string]string) string {
@@ -322,6 +376,39 @@ func formatMap(values map[string]string) string {
 	}
 	sort.Strings(pairs)
 	return strings.Join(pairs, ",")
+}
+
+func inlineListContains(value, target string) bool {
+	value = strings.TrimSpace(strings.Trim(value, "[]"))
+	for item := range strings.SplitSeq(value, ",") {
+		if strings.TrimSpace(item) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func parseFlowMap(value string) (map[string]string, error) {
+	value = strings.TrimSpace(value)
+	if !strings.HasPrefix(value, "{") || !strings.HasSuffix(value, "}") {
+		return nil, fmt.Errorf("not a flow mapping")
+	}
+	result := map[string]string{}
+	body := strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(value, "{"), "}"))
+	if body == "" {
+		return result, nil
+	}
+	for field := range strings.SplitSeq(body, ",") {
+		key, scalar, ok := splitYAMLField(strings.TrimSpace(field))
+		if !ok || key == "" || scalar == "" {
+			return nil, fmt.Errorf("invalid flow-mapping field %q", field)
+		}
+		if _, duplicate := result[key]; duplicate {
+			return nil, fmt.Errorf("duplicate flow-mapping key %q", key)
+		}
+		result[key] = scalar
+	}
+	return result, nil
 }
 
 func readContractFile(t *testing.T, path string) string {

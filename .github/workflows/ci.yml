@@ -86,6 +86,13 @@ jobs:
         env:
           GOFLAGS: -mod=readonly
 
+      # Go's own vulnerability scanner: call-graph-aware, so it only flags
+      # vulnerabilities actually reachable from this code — high signal, low
+      # noise for a small CLI. Version pinned deliberately; bump in a
+      # reviewed PR, not via @latest.
+      - name: govulncheck
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+
   # Isolate the only OIDC permission from every command that builds or tests
   # pull-request code. The input is the inert coverage artifact above. There
   # are no repository secrets, so fork PRs follow the same safe path; inability
@@ -110,13 +117,6 @@ jobs:
           use_oidc: true
           slug: trulayer/lgty-action
           files: ./coverage.out
-
-      # Go's own vulnerability scanner: call-graph-aware, so it only flags
-      # vulnerabilities actually reachable from this code — high signal, low
-      # noise for a small CLI. Version pinned deliberately; bump in a
-      # reviewed PR, not via @latest.
-      - name: govulncheck
-        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 
   semgrep:
     runs-on: ubuntu-latest
