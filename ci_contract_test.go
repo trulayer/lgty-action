@@ -17,6 +17,7 @@ const (
 
 type workflowJob struct {
 	permissions     map[string]string
+	ifCondition     string
 	continueOnError string
 	needs           string
 	steps           []workflowStep
@@ -116,6 +117,29 @@ func TestCodecovUploadContractRejectsAdversarialChanges(t *testing.T) {
 			"      - name: govulncheck\n        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...",
 			"      - {name: govulncheck, run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./..., continue-on-error: true}",
 			1,
+		),
+		"aggregate continue-on-error": strings.Replace(
+			workflow, "  ci:\n    if: always()", "  ci:\n    if: always()\n    continue-on-error: true", 1,
+		),
+		"aggregate quoted continue-on-error": strings.Replace(
+			workflow, "  ci:\n    if: always()", "  ci:\n    if: always()\n    continue-on-error: \"true\"", 1,
+		),
+		"aggregate false condition": strings.Replace(
+			workflow, "  ci:\n    if: always()", "  ci:\n    if: false", 1,
+		),
+		"aggregate unsafe always condition": strings.Replace(
+			workflow, "  ci:\n    if: always()", "  ci:\n    if: always() || true", 1,
+		),
+		"aggregate expression always variant": strings.Replace(
+			workflow, "  ci:\n    if: always()", "  ci:\n    if: ${{ always() || true }}", 1,
+		),
+		"aggregate commented safe flag": strings.Replace(
+			workflow, "  ci:\n    if: always()",
+			"  ci:\n    if: always()\n    continue-on-error: true\n    # continue-on-error: false", 1,
+		),
+		"aggregate flow mapping": strings.Replace(
+			workflow, "  ci:\n    if: always()\n    needs: [build, semgrep]",
+			"  ci: {if: always(), continue-on-error: true, needs: [build, semgrep]}", 1,
 		),
 	}
 
@@ -227,6 +251,15 @@ func validateCodecovWorkflow(source string) error {
 	if !ok || !inlineListContains(aggregate.needs, govulnJob) {
 		return fmt.Errorf("aggregate ci must gate on govulncheck job %q", govulnJob)
 	}
+	if got := formatInlineList(aggregate.needs); got != "build,semgrep" {
+		return fmt.Errorf("aggregate ci needs must retain exact blocking jobs, got %s", got)
+	}
+	if aggregate.ifCondition != "always()" {
+		return fmt.Errorf("aggregate ci job must use exact fail-closed if: always()")
+	}
+	if aggregate.continueOnError != "" {
+		return fmt.Errorf("aggregate ci job must not continue on error")
+	}
 	if len(uploadSteps) != 1 ||
 		uploadSteps[0].continueOnError != "true" ||
 		uploadSteps[0].with["name"] != "coverage-report" ||
@@ -332,6 +365,8 @@ func parseWorkflowContract(source string) (workflowContract, string, error) {
 				section = "steps"
 			case "continue-on-error":
 				job.continueOnError = value
+			case "if":
+				job.ifCondition = value
 			case "needs":
 				job.needs = value
 			default:
@@ -427,6 +462,18 @@ func inlineListContains(value, target string) bool {
 		}
 	}
 	return false
+}
+
+func formatInlineList(value string) string {
+	value = strings.TrimSpace(strings.Trim(value, "[]"))
+	items := []string{}
+	for item := range strings.SplitSeq(value, ",") {
+		if item = strings.TrimSpace(item); item != "" {
+			items = append(items, item)
+		}
+	}
+	sort.Strings(items)
+	return strings.Join(items, ",")
 }
 
 func parseFlowMap(value string) (map[string]string, error) {
