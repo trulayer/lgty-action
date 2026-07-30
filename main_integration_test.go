@@ -5,7 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -19,12 +21,16 @@ import (
 func TestRun_DryRunWithRealPostgres(t *testing.T) {
 	dsn := os.Getenv("LGTY_TEST_DB_DSN")
 	if dsn == "" {
+		if os.Getenv("CI") == "true" {
+			t.Fatal("LGTY_TEST_DB_DSN must be set in CI; full-run integration coverage may not skip")
+		}
 		t.Skip("set LGTY_TEST_DB_DSN to run the full dry-run integration test")
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	seedFullRunDB(ctx, t, dsn)
+	schema := fmt.Sprintf("lgty_action_full_run_test_%d", time.Now().UnixNano())
+	seedFullRunDB(ctx, t, dsn, schema)
 
 	t.Setenv("LGTY_DB_DSN", dsn)
 	t.Setenv("LGTY_DRY_RUN", "true")
@@ -34,11 +40,26 @@ func TestRun_DryRunWithRealPostgres(t *testing.T) {
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "")
 
 	var output bytes.Buffer
-	if err := run(ctx, &output); err != nil {
+	collectedAt := time.Date(2026, time.July, 30, 12, 34, 56, 0, time.FixedZone("test", -7*60*60))
+	if err := run(ctx, &output, func() time.Time { return collectedAt }); err != nil {
 		t.Fatalf("run dry-run against Postgres: %v", err)
 	}
 	if strings.Contains(output.String(), fullRunSecret) {
 		t.Fatal("raw row value leaked into dry-run payload")
+	}
+
+	var shape map[string]json.RawMessage
+	if err := json.Unmarshal(output.Bytes(), &shape); err != nil {
+		t.Fatalf("decode printed payload shape: %v", err)
+	}
+	gotKeys := make([]string, 0, len(shape))
+	for key := range shape {
+		gotKeys = append(gotKeys, key)
+	}
+	sort.Strings(gotKeys)
+	wantKeys := []string{"collected_at", "dependencies", "repo", "tables", "workspace"}
+	if strings.Join(gotKeys, ",") != strings.Join(wantKeys, ",") {
+		t.Fatalf("payload keys = %v, want %v", gotKeys, wantKeys)
 	}
 
 	var md collect.Metadata
@@ -48,23 +69,34 @@ func TestRun_DryRunWithRealPostgres(t *testing.T) {
 	if md.Workspace != "workspace-test" || md.Repo != "acme/widgets" {
 		t.Fatalf("identity = %q/%q", md.Workspace, md.Repo)
 	}
+	if want := collectedAt.UTC(); !md.CollectedAt.Equal(want) {
+		t.Fatalf("collected_at = %s, want %s", md.CollectedAt, want)
+	}
+	foundTable := false
 	for _, table := range md.Tables {
-		if table.Schema == fullRunSchema && table.Name == "customers" {
+		if table.Schema == schema && table.Name == "customers" {
 			if table.RowEstimate < 1 || table.TotalBytes < 1 || table.ColumnCount != 2 {
 				t.Fatalf("customers metadata = %+v", table)
 			}
+			foundTable = true
+			break
+		}
+	}
+	if !foundTable {
+		t.Fatalf("missing %s.customers metadata: %+v", schema, md.Tables)
+	}
+	for _, dep := range md.Deps {
+		if dep.FromSchema == schema && dep.FromTable == "orders" &&
+			dep.ToSchema == schema && dep.ToTable == "customers" {
 			return
 		}
 	}
-	t.Fatalf("missing %s.customers metadata: %+v", fullRunSchema, md.Tables)
+	t.Fatalf("missing %s.orders -> customers dependency: %+v", schema, md.Deps)
 }
 
-const (
-	fullRunSchema = "lgty_action_full_run_test"
-	fullRunSecret = "raw-customer-value-must-never-leave"
-)
+const fullRunSecret = "raw-customer-value-must-never-leave"
 
-func seedFullRunDB(ctx context.Context, t *testing.T, dsn string) {
+func seedFullRunDB(ctx context.Context, t *testing.T, dsn, schema string) {
 	t.Helper()
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
@@ -75,11 +107,13 @@ func seedFullRunDB(ctx context.Context, t *testing.T, dsn string) {
 		t.Fatalf("ping Postgres: %v", err)
 	}
 	statements := []string{
-		`DROP SCHEMA IF EXISTS ` + fullRunSchema + ` CASCADE`,
-		`CREATE SCHEMA ` + fullRunSchema,
-		`CREATE TABLE ` + fullRunSchema + `.customers (id bigint PRIMARY KEY, private_value text)`,
-		`INSERT INTO ` + fullRunSchema + `.customers VALUES (1, '` + fullRunSecret + `')`,
-		`ANALYZE ` + fullRunSchema + `.customers`,
+		`CREATE SCHEMA ` + schema,
+		`CREATE TABLE ` + schema + `.customers (id bigint PRIMARY KEY, private_value text)`,
+		`CREATE TABLE ` + schema + `.orders (id bigint PRIMARY KEY, customer_id bigint REFERENCES ` + schema + `.customers(id))`,
+		`INSERT INTO ` + schema + `.customers VALUES (1, '` + fullRunSecret + `')`,
+		`INSERT INTO ` + schema + `.orders VALUES (1, 1)`,
+		`ANALYZE ` + schema + `.customers`,
+		`ANALYZE ` + schema + `.orders`,
 	}
 	for _, statement := range statements {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
@@ -90,7 +124,7 @@ func seedFullRunDB(ctx context.Context, t *testing.T, dsn string) {
 	t.Cleanup(func() {
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cleanupCancel()
-		_, _ = db.ExecContext(cleanupCtx, `DROP SCHEMA IF EXISTS `+fullRunSchema+` CASCADE`)
+		_, _ = db.ExecContext(cleanupCtx, `DROP SCHEMA IF EXISTS `+schema+` CASCADE`)
 		_ = db.Close()
 	})
 }
