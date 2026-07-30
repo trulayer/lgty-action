@@ -11,6 +11,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"time"
@@ -24,12 +25,12 @@ import (
 func main() {
 	log.SetFlags(0)
 	log.SetPrefix("lgty-action: ")
-	if err := run(context.Background()); err != nil {
+	if err := run(context.Background(), os.Stdout, time.Now); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func run(ctx context.Context) error {
+func run(ctx context.Context, stdout io.Writer, now func() time.Time) error {
 	cfg, err := config.Load()
 	if err != nil {
 		return fmt.Errorf("config: %w", err)
@@ -51,13 +52,13 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("collect: %w", err)
 	}
-	md.CollectedAt = time.Now().UTC()
+	md.CollectedAt = now().UTC()
 	md.Repo = cfg.Repo
 	md.Workspace = cfg.Workspace
 
 	// 4. Ship it (or print it, in dry-run, so the customer can see exactly what leaves).
 	if cfg.DryRun {
-		return ingest.Print(os.Stdout, md)
+		return ingest.Print(stdout, md)
 	}
 	return ingest.Send(ctx, cfg.BackendURL, token, md)
 }
