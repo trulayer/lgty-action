@@ -1,8 +1,6 @@
 # lgty-action
 
-[![codecov](https://codecov.io/gh/trulayer/lgty-action/graph/badge.svg)](https://codecov.io/gh/trulayer/lgty-action)
-
-<sub>Coverage is informational and does not gate merges.</sub>
+<sub>Coverage upload is informational and does not gate merges. The badge will return after direct verification of Codecov's default-branch data and repository settings.</sub>
 
 The LGTY **tier-2 metadata uploader**. A single Go binary — one direct dependency, the Postgres driver — that runs in **your** CI, authenticates with a short-lived **OIDC** token (no long-lived secret), and sends LGTY the read-only database **metadata** it needs to power **Production Impact** — table names, row-count **estimates**, sizes, and foreign-key dependency edges.
 

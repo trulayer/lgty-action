@@ -12,7 +12,6 @@ const (
 	codecovAction          = "codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac"
 	uploadArtifactAction   = "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02"
 	downloadArtifactAction = "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
-	badgeURL               = "https://codecov.io/gh/trulayer/lgty-action/graph/badge.svg"
 )
 
 type workflowJob struct {
@@ -188,13 +187,13 @@ func TestCodecovUploadContractRejectsAdversarialChanges(t *testing.T) {
 	}
 }
 
-func TestCodecovBadgeDoesNotCarryToken(t *testing.T) {
+func TestCodecovBadgeIsWithheldUntilVerified(t *testing.T) {
 	readme := readContractFile(t, "README.md")
-	if !strings.Contains(readme, badgeURL+")") {
-		t.Fatal("README must retain the plain public Codecov badge")
+	if strings.Contains(readme, "codecov.io/gh/trulayer/lgty-action") {
+		t.Fatal("README must not claim an unverified Codecov badge or project link")
 	}
-	if strings.Contains(readme, badgeURL+"?") {
-		t.Fatal("public Codecov badge must not contain query credentials")
+	if !strings.Contains(readme, "Coverage upload is informational and does not gate merges.") {
+		t.Fatal("README must describe coverage upload as informational")
 	}
 }
 
