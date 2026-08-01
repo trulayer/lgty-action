@@ -18,6 +18,16 @@ README). Entries below accumulate here and are cut into a version at release tim
 - Metadata pipeline: OIDC token fetch, the metadata-only guard, three guarded
   Postgres system-catalog queries wired to a real database, and the ingest
   client.
+- `tables[].analyzed` in the metadata payload: `false` when a table has never
+  been vacuumed/analyzed, signaling that `row_estimate` came from the
+  `pg_stat_user_tables.n_live_tup` fallback rather than a post-`ANALYZE`
+  planner statistic (audit 2026-07-31 finding F6).
+
+### Fixed
+- `tables[].row_estimate` no longer leaks Postgres's `reltuples = -1`
+  "never analyzed" sentinel for tables that have never been vacuumed/analyzed
+  — the common case right after a migration creates a table. It now falls
+  back to `pg_stat_user_tables.n_live_tup` (audit 2026-07-31 finding F6).
 - `dry-run` mode: prints the exact JSON payload to the job log and sends nothing.
 - Signed release automation (checksums, cosign keyless signature, SPDX SBOM,
   and GitHub build-provenance attestation per artifact).
