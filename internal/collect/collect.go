@@ -27,11 +27,20 @@ type Metadata struct {
 
 // TableMeta is per-table metadata.
 type TableMeta struct {
-	Schema      string `json:"schema"`
-	Name        string `json:"name"`
-	RowEstimate int64  `json:"row_estimate"` // pg_class.reltuples / n_live_tup — an ESTIMATE
-	TotalBytes  int64  `json:"total_bytes"`  // pg_total_relation_size
-	ColumnCount int    `json:"column_count"` // count only — never column values
+	Schema string `json:"schema"`
+	Name   string `json:"name"`
+	// RowEstimate is pg_class.reltuples when the table has been analyzed, or
+	// pg_stat_user_tables.n_live_tup otherwise — always an ESTIMATE, never an
+	// exact count. Postgres reports reltuples as -1 (a sentinel, not a value)
+	// for a table that has never been vacuumed/analyzed — the common case for
+	// a table a migration just created; that sentinel is never surfaced here.
+	RowEstimate int64 `json:"row_estimate"`
+	// Analyzed is false when RowEstimate came from the n_live_tup fallback
+	// rather than a post-ANALYZE planner statistic — i.e. the estimate is
+	// less certain, not that the table is empty.
+	Analyzed    bool  `json:"analyzed"`
+	TotalBytes  int64 `json:"total_bytes"`  // pg_total_relation_size
+	ColumnCount int   `json:"column_count"` // count only — never column values
 }
 
 // DepEdge is a foreign-key dependency between two tables.
@@ -53,10 +62,14 @@ type Querier interface {
 const (
 	qRowEstimates = `
 SELECT n.nspname AS schema, c.relname AS name,
-       c.reltuples::bigint AS row_estimate,
+       CASE WHEN c.reltuples < 0 THEN COALESCE(s.n_live_tup, 0)
+            ELSE c.reltuples::bigint
+       END AS row_estimate,
+       c.reltuples >= 0 AS analyzed,
        pg_total_relation_size(c.oid) AS total_bytes
 FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
+LEFT JOIN pg_stat_user_tables s ON s.relid = c.oid
 WHERE c.relkind = 'r' AND n.nspname NOT IN ('pg_catalog', 'information_schema')`
 
 	qColumnCounts = `
@@ -143,7 +156,7 @@ func collectTables(ctx context.Context, db Querier) ([]TableMeta, error) {
 	}
 	for rows.Next() {
 		var t TableMeta
-		if err := rows.Scan(&t.Schema, &t.Name, &t.RowEstimate, &t.TotalBytes); err != nil {
+		if err := rows.Scan(&t.Schema, &t.Name, &t.RowEstimate, &t.Analyzed, &t.TotalBytes); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}

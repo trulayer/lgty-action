@@ -212,6 +212,6 @@ func wantTable(ctx context.Context, t *testing.T, dsn, schema, table string, col
 		t.Fatalf("relation size %s.%s: %v", schema, table, err)
 	}
 	return collect.TableMeta{
-		Schema: schema, Name: table, RowEstimate: 1, TotalBytes: size, ColumnCount: columns,
+		Schema: schema, Name: table, RowEstimate: 1, Analyzed: true, TotalBytes: size, ColumnCount: columns,
 	}
 }
