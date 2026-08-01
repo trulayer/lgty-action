@@ -118,6 +118,41 @@ The action exits non-zero (failing the step) in these cases:
 | `dry-run: true` and OIDC is unavailable | **Does not fail** — logs that OIDC was skipped and prints the payload. |
 | Success | Exits `0`. |
 
+### Does a failed upload block my merge?
+
+**By default, yes it fails the step — and that is deliberate, not a violation of
+LGTY's no-merge-blocking design law** (referenced in [Outputs](#outputs) above
+and in the [README](../README.md)). That law says LGTY's
+*review verdict* — the brief content — never gates a merge. This action ships
+zero verdict and zero output (see [Outputs](#outputs) above); it is plumbing,
+not a review opinion. A metadata upload that gets silently dropped and reports
+success is the [exact Codecov failure mode](../README.md#if-this-action-never-runs)
+this product refuses to reproduce: it would mean Production Impact's coverage
+went to zero with nothing in the CI log to notice it by. Failing the step is
+the cheapest, earliest place to surface that.
+
+Whether a failed step actually blocks a *merge* is entirely **your** call, made
+in your own branch-protection settings — LGTY does not register this as a
+required check and never will. If you don't want a metadata-upload failure to
+ever show red on an unrelated PR, add `continue-on-error: true` to your own
+step, the same way you would for any other CI step you consider advisory:
+
+```yaml
+- uses: trulayer/lgty-action@v1
+  continue-on-error: true
+  with:
+    db-dsn: ${{ secrets.LGTY_READONLY_DSN }}
+```
+
+That failure is still logged and still visible in the job summary either way —
+`continue-on-error` only changes whether it turns the *step* (and therefore,
+by default, the job) red. LGTY's own CI makes exactly this choice for its own
+(unrelated) Codecov upload — see [`.github/workflows/ci.yml`](../.github/workflows/ci.yml)
+— because a coverage report really is advisory. A customer's Production Impact
+metadata is not advisory to LGTY the same way, so the action's own default
+stays a hard failure; `continue-on-error` is there for you to opt into, not a
+default LGTY chooses for you.
+
 ## What a failure means for coverage
 
 If this action never runs, a run fails, or OIDC/database access is unavailable,

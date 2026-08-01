@@ -23,6 +23,15 @@ README). Entries below accumulate here and are cut into a version at release tim
   `pg_stat_user_tables.n_live_tup` fallback rather than a post-`ANALYZE`
   planner statistic (audit 2026-07-31 finding F6).
 
+### Added (tests / docs, no behavior change)
+- Subprocess-level tests asserting the actual exit code and stderr of the
+  compiled binary on a 4xx ingest rejection and on a refused connection —
+  closing a coverage gap where the only prior tests asserted `Send()`'s
+  returned Go error rather than the observable CI outcome (TDD §3.7).
+- [Exit behavior](docs/inputs-outputs.md#exit-behavior) now states explicitly
+  whether a failed upload can block a merge, and how to opt a step into
+  `continue-on-error: true`.
+
 ### Fixed
 - `tables[].row_estimate` no longer leaks Postgres's `reltuples = -1`
   "never analyzed" sentinel for tables that have never been vacuumed/analyzed
