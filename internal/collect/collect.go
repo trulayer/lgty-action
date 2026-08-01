@@ -242,13 +242,11 @@ func collectDeps(ctx context.Context, db Querier) ([]DepEdge, error) {
 	return out, nil
 }
 
-// open returns a read-only-intended *sql.DB. The pgx stdlib driver is added via
-//
-//	import _ "github.com/jackc/pgx/v5/stdlib"
-//
-// and is intentionally omitted from this dependency-free Phase-0 skeleton; until
-// it is added, a non-dry-run against a real DSN fails fast with a clear
-// "unknown driver" error rather than doing anything unsafe.
+// open returns a read-only-intended *sql.DB. The pgx stdlib driver is
+// registered by the blank import at the top of this file
+// (github.com/jackc/pgx/v5/stdlib), so a non-dry-run DSN connects for real;
+// SetMaxOpenConns(2) keeps this action's footprint on the customer's database
+// minimal.
 func open(dsn string) (*sql.DB, error) {
 	db, err := sql.Open("pgx", dsn)
 	if err != nil {
