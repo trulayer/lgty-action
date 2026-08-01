@@ -70,6 +70,7 @@ secrets.
       "schema": "public",
       "name": "orders",
       "row_estimate": 128934,
+      "analyzed": true,
       "total_bytes": 41943040,
       "column_count": 12
     }
@@ -91,7 +92,8 @@ secrets.
 | `repo` | string | `owner/name`, taken from `GITHUB_REPOSITORY`. |
 | `collected_at` | string (RFC 3339, UTC) | When the metadata was gathered. |
 | `tables[].schema` / `tables[].name` | string | Table **identifiers** in non-system schemas. Never column-level identifiers. |
-| `tables[].row_estimate` | integer | An **estimate** from `pg_class.reltuples` — never a `SELECT count(*)`, never a row scan. |
+| `tables[].row_estimate` | integer | An **estimate** — from `pg_class.reltuples` once the table has been analyzed, or from `pg_stat_user_tables.n_live_tup` before then. Never a `SELECT count(*)`, never a row scan. Postgres reports `reltuples` as `-1` (a sentinel, not a value) for a table that has never been vacuumed/analyzed — e.g. a table a migration just created; this action always resolves that sentinel to the fallback estimate before it leaves your CI, never `-1`. |
+| `tables[].analyzed` | boolean | `false` when `row_estimate` came from the `n_live_tup` fallback rather than a post-`ANALYZE` planner statistic — a signal that the estimate is less certain, **not** that the table is empty. |
 | `tables[].total_bytes` | integer | `pg_total_relation_size` — on-disk size, not contents. |
 | `tables[].column_count` | integer | A **count** of columns. Never column names, types, or values. |
 | `dependencies[]` | array | Foreign-key edges between tables, as `(from_schema, from_table) → (to_schema, to_table)`. Table identifiers only — never the FK column names. |

@@ -67,6 +67,9 @@ func TestRun_Integration(t *testing.T) {
 	if customers.RowEstimate < 1 {
 		t.Errorf("customers.RowEstimate = %d, want a positive estimate after ANALYZE", customers.RowEstimate)
 	}
+	if !customers.Analyzed {
+		t.Error("customers.Analyzed = false, want true: this table was explicitly ANALYZEd by the test seed")
+	}
 	if customers.TotalBytes <= 0 {
 		t.Errorf("customers.TotalBytes = %d, want > 0", customers.TotalBytes)
 	}
@@ -90,6 +93,83 @@ func TestRun_Integration(t *testing.T) {
 	if !foundEdge {
 		t.Errorf("expected FK edge %s.orders -> %s.customers in deps; got %+v", testSchema, testSchema, md.Deps)
 	}
+}
+
+// TestRun_Integration_NeverAnalyzedTable is the regression test for the
+// reltuples=-1 defect: Postgres reports pg_class.reltuples as -1 — a
+// sentinel, not a value — for a table that has never been vacuumed/analyzed
+// (the common case for a table a migration just created). That sentinel must
+// never reach the emitted payload as a row-count estimate; this asserts the
+// actual observable Metadata a caller receives, not an intermediate value.
+func TestRun_Integration_NeverAnalyzedTable(t *testing.T) {
+	dsn := os.Getenv("LGTY_TEST_DB_DSN")
+	if dsn == "" {
+		t.Skip("set LGTY_TEST_DB_DSN to a Postgres DSN to run the integration test")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	schema := "lgty_action_never_analyzed_test"
+	seedNeverAnalyzedTable(ctx, t, dsn, schema)
+
+	md, err := Run(ctx, dsn)
+	if err != nil {
+		t.Fatalf("Run against real Postgres failed: %v", err)
+	}
+
+	var found *TableMeta
+	for i := range md.Tables {
+		if md.Tables[i].Schema == schema && md.Tables[i].Name == "orders" {
+			found = &md.Tables[i]
+		}
+	}
+	if found == nil {
+		t.Fatalf("expected table %s.orders in payload; tables=%+v", schema, md.Tables)
+	}
+
+	if found.RowEstimate == -1 {
+		t.Fatalf("RowEstimate leaked Postgres's reltuples=-1 'never analyzed' sentinel: %+v", found)
+	}
+	if found.RowEstimate < 0 {
+		t.Errorf("RowEstimate = %d, want a non-negative estimate (n_live_tup fallback): %+v", found.RowEstimate, found)
+	}
+	if found.Analyzed {
+		t.Error("Analyzed = true for a table that was never ANALYZEd; want false so a caller can tell this is a live-tuple fallback, not a planner statistic")
+	}
+}
+
+func seedNeverAnalyzedTable(ctx context.Context, t *testing.T, dsn, schema string) {
+	t.Helper()
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open seed connection: %v", err)
+	}
+	if err := db.PingContext(ctx); err != nil {
+		_ = db.Close()
+		t.Fatalf("ping Postgres at LGTY_TEST_DB_DSN: %v", err)
+	}
+
+	stmts := []string{
+		`DROP SCHEMA IF EXISTS ` + schema + ` CASCADE`,
+		`CREATE SCHEMA ` + schema,
+		`CREATE TABLE ` + schema + `.orders (id bigint PRIMARY KEY, total numeric)`,
+		`INSERT INTO ` + schema + `.orders SELECT g, g * 10 FROM generate_series(1,12) g`,
+		// Deliberately NO ANALYZE: pg_class.reltuples stays at Postgres's -1
+		// "never analyzed" sentinel for this table, which is the case under test.
+	}
+	for _, s := range stmts {
+		if _, err := db.ExecContext(ctx, s); err != nil {
+			_ = db.Close()
+			t.Fatalf("seed statement failed (%.60q): %v", s, err)
+		}
+	}
+	t.Cleanup(func() {
+		cctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_, _ = db.ExecContext(cctx, `DROP SCHEMA IF EXISTS `+schema+` CASCADE`)
+		_ = db.Close()
+	})
 }
 
 const testSchema = "lgty_action_test"
