@@ -1,34 +1,64 @@
 name: "LGTY Production Impact metadata"
-description: "Sends LGTY read-only DB metadata (row estimates, sizes, FK edges) via OIDC to power Production Impact. Never row data."
+description: "Two OIDC-authenticated subcommands: 'metadata' (default) sends read-only DB metadata, never row data; 'renders' uploads CI-rendered screenshots for Visual Review, on a distinct audience. See README."
 author: "LGTY"
 branding:
   icon: "database"
   color: "blue"
 
 inputs:
+  command:
+    description: >
+      Which subcommand to run: "metadata" (default — the tier-2 DB-metadata
+      uploader, unchanged) or "renders" (LGT-404 — uploads CI-rendered PNG
+      screenshots for Visual Review). These are two separately auditable
+      promises about what leaves your CI; a workflow that never sets
+      command: renders never runs any of that code path. See README.
+    required: false
+    default: "metadata"
   backend-url:
-    description: "LGTY ingest base URL."
+    description: "LGTY ingest base URL. Shared by both subcommands."
     required: false
     default: "https://api.lgty.ai"
   db-dsn:
-    description: "Read-only Postgres DSN, scoped to a read-only role. Store it as a CI secret. Required unless dry-run is true."
+    description: "metadata only. Read-only Postgres DSN, scoped to a read-only role. Store it as a CI secret. Required unless dry-run is true."
     required: false
   db-kind:
-    description: "Database engine. Only \"postgres\" is supported currently."
+    description: "metadata only. Database engine. Only \"postgres\" is supported currently."
     required: false
     default: "postgres"
+  renders-dir:
+    description: >
+      renders only. Directory containing manifest.json and the PNG files it
+      names — see docs/inputs-outputs.md "Renders subcommand" for the
+      manifest format. Required when command is "renders".
+    required: false
+  commit-sha:
+    description: >
+      renders only. Overrides the commit a capture run is attributed to.
+      Leave unset in normal use — the action resolves the pull request's own
+      head SHA itself (never $GITHUB_SHA, which on a pull_request event is
+      GitHub's ephemeral merge commit, not the PR's head).
+    required: false
   dry-run:
-    description: "If true, print the exact metadata payload to the job log instead of sending it. No OIDC token or database connection is required in this mode."
+    description: >
+      If true: metadata prints the exact payload instead of sending it;
+      renders prints the exact capture manifest (files, dimensions, byte
+      sizes, digests) instead of uploading. No OIDC token or network call is
+      made in this mode, for either subcommand.
     required: false
     default: "false"
 
 runs:
   using: "docker"
   image: "Dockerfile"
+  args:
+    - ${{ inputs.command }}
   env:
     LGTY_BACKEND_URL: ${{ inputs.backend-url }}
     LGTY_DB_DSN: ${{ inputs.db-dsn }}
     LGTY_DB_KIND: ${{ inputs.db-kind }}
+    LGTY_RENDERS_DIR: ${{ inputs.renders-dir }}
+    LGTY_COMMIT_SHA: ${{ inputs.commit-sha }}
     LGTY_DRY_RUN: ${{ inputs.dry-run }}
     # Docker container actions do NOT automatically receive the runner's OIDC
     # request env vars — they must be forwarded explicitly, or oidc.FetchToken
@@ -37,3 +67,8 @@ runs:
     # Actions" for the required permissions block.
     ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
     ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
+    # NOT forwarded here, unlike the two OIDC vars above: GitHub already
+    # injects GITHUB_EVENT_NAME / GITHUB_EVENT_PATH / GITHUB_SHA /
+    # GITHUB_REPOSITORY into every Docker container action automatically. The
+    # renders subcommand reads those directly (internal/cienv) to resolve the
+    # pull request's real head SHA with no customer-side configuration.

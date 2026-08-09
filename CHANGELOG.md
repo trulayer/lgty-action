@@ -15,6 +15,25 @@ moving `v1` tag exist, pin to a full commit SHA rather than `@v1` (see the
 README). Entries below accumulate here and are cut into a version at release time.
 
 ### Added
+- **`renders` subcommand (LGT-404):** uploads PNG screenshots your own CI
+  already rendered to `POST /v1/renders`, then signals `POST
+  /v1/renders/complete` so an already-published Visual Review brief can be
+  upgraded in place. Authenticates with its own short-lived OIDC token on a
+  distinct audience from the metadata subcommand's — the two never share a
+  token, a request, or a payload shape. Reads a customer-authored
+  `manifest.json` (see [`docs/inputs-outputs.md`](docs/inputs-outputs.md)
+  "Renders subcommand") so this stays renderer-agnostic: Playwright, Cypress,
+  and Storybook's own runner all satisfy it identically. Resolves the pull
+  request's real head SHA itself (never `GITHUB_SHA`'s ephemeral merge commit
+  on a `pull_request` event) so a customer never has to compute it by hand.
+  `dry-run: true` prints the planned upload — file, dimensions, byte size,
+  digest per capture — with no OIDC token or network call, mirroring the
+  metadata subcommand's dry-run behavior.
+- **`main.go` gained subcommand dispatch** (`lgty-action metadata` /
+  `lgty-action renders`; the `command` action input, defaulting to
+  `metadata`). No argument at all still runs `metadata` — every
+  `uses: trulayer/lgty-action@v1` step written before this change keeps
+  behaving exactly as before.
 - Metadata pipeline: OIDC token fetch, the metadata-only guard, three guarded
   Postgres system-catalog queries wired to a real database, and the ingest
   client.
@@ -31,6 +50,15 @@ README). Entries below accumulate here and are cut into a version at release tim
 - [Exit behavior](docs/inputs-outputs.md#exit-behavior) now states explicitly
   whether a failed upload can block a merge, and how to opt a step into
   `continue-on-error: true`.
+
+### Changed
+- **The README's "complete set of data" claim is now scoped to the metadata
+  subcommand explicitly**, not the binary as a whole — it was true of the
+  whole binary only because the binary did one thing. Per pm's 2026-08-05
+  ruling this is two separately auditable promises, not one relaxed promise:
+  a workflow that never sets `command: renders` never runs that code path,
+  and the metadata claim stays exhaustive and literally true for it, exactly
+  as before.
 
 ### Fixed
 - `tables[].row_estimate` no longer leaks Postgres's `reltuples = -1`
