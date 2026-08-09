@@ -61,6 +61,18 @@ README). Entries below accumulate here and are cut into a version at release tim
   as before.
 
 ### Fixed
+- **`action.yml` never actually worked from a real `uses:` step, for either
+  subcommand.** `runs.env` tried to forward the runner's OIDC request env
+  vars with `${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}` — the `env` context
+  does not exist at that scope in a Docker container action, so this was
+  invalid syntax that failed the job before a single step could run,
+  independent of `command`. Found by LGT-404's dogfooding in
+  `lgty-frontend` — the first real `uses: trulayer/lgty-action@...`
+  invocation this action has had. The fix is to remove those lines: the
+  runner's own container handler already injects
+  `ACTIONS_ID_TOKEN_REQUEST_URL`/`_TOKEN` (and the standard `GITHUB_*` vars)
+  into every Docker container action automatically once the job has
+  `permissions: id-token: write` — no explicit forwarding was ever needed.
 - `tables[].row_estimate` no longer leaks Postgres's `reltuples = -1`
   "never analyzed" sentinel for tables that have never been vacuumed/analyzed
   — the common case right after a migration creates a table. It now falls
