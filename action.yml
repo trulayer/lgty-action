@@ -60,15 +60,17 @@ runs:
     LGTY_RENDERS_DIR: ${{ inputs.renders-dir }}
     LGTY_COMMIT_SHA: ${{ inputs.commit-sha }}
     LGTY_DRY_RUN: ${{ inputs.dry-run }}
-    # Docker container actions do NOT automatically receive the runner's OIDC
-    # request env vars — they must be forwarded explicitly, or oidc.FetchToken
-    # always fails with "no GitHub Actions OIDC environment found" even when
-    # the job has `permissions: id-token: write`. See README "Use it in GitHub
-    # Actions" for the required permissions block.
-    ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-    ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
-    # NOT forwarded here, unlike the two OIDC vars above: GitHub already
-    # injects GITHUB_EVENT_NAME / GITHUB_EVENT_PATH / GITHUB_SHA /
-    # GITHUB_REPOSITORY into every Docker container action automatically. The
-    # renders subcommand reads those directly (internal/cienv) to resolve the
-    # pull request's real head SHA with no customer-side configuration.
+    # ACTIONS_ID_TOKEN_REQUEST_URL / ACTIONS_ID_TOKEN_REQUEST_TOKEN and the
+    # standard GITHUB_* vars are NOT listed here, and that is deliberate, not
+    # an oversight: the runner's own ContainerActionHandler injects both sets
+    # into every Docker container action automatically once the calling job
+    # has `permissions: id-token: write` — see README "Use it in GitHub
+    # Actions" for that permissions block. A prior revision of this file
+    # attempted to forward them explicitly via `${{ env.ACTIONS_ID_TOKEN_... }}`;
+    # that is invalid syntax in a Docker action's `runs.env` (the `env`
+    # context does not exist at this scope — confirmed by a real run: this
+    # repo's action.yml had never actually been exercised via a live `uses:`
+    # step before LGT-404's dogfooding in lgty-frontend surfaced it, only
+    # unit/integration-tested against the compiled Go binary directly) and
+    # broke EVERY invocation of this action, metadata included, before a
+    # single step could even start. Do not reintroduce it.
