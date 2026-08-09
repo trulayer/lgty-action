@@ -45,11 +45,11 @@ func TestRun_DryRunWithRealPostgres(t *testing.T) {
 
 	var output bytes.Buffer
 	collectedAt := time.Date(2026, time.July, 30, 12, 34, 56, 0, time.FixedZone("test", -7*60*60))
-	if err := run(ctx, &output, func() time.Time { return collectedAt }); err != nil {
+	if err := runMetadata(ctx, &output, func() time.Time { return collectedAt }); err != nil {
 		t.Fatalf("run dry-run against Postgres: %v", err)
 	}
 	var repeated bytes.Buffer
-	if err := run(ctx, &repeated, func() time.Time { return collectedAt }); err != nil {
+	if err := runMetadata(ctx, &repeated, func() time.Time { return collectedAt }); err != nil {
 		t.Fatalf("repeat dry-run against Postgres: %v", err)
 	}
 	if !bytes.Equal(output.Bytes(), repeated.Bytes()) {

@@ -14,6 +14,18 @@ All copy below obeys the LGTY banned-language / never-certify rule: this action
 **transmits metadata**; it does not make anything "safe", "verified", or
 "proven", and it renders no verdict. Keep it that way on every edit.
 
+> **Note (LGT-404, 2026-08-09):** the binary now has a second subcommand,
+> `renders`, which uploads CI-rendered PNG screenshots for Visual Review — see
+> the [README](../README.md) and [`docs/inputs-outputs.md`](inputs-outputs.md).
+> The listing name and tagline below still describe the `metadata` subcommand
+> only, which is still accurate for `metadata` alone but is no longer a
+> complete description of everything this repository ships. Whether the
+> public Marketplace listing should be renamed, given a second tagline
+> mentioning renders, or left as-is (metadata is still the subcommand a new
+> customer meets first) is a positioning call, not a technical one — flagged
+> here for `marketing`/`tpm` to make explicitly rather than left implicit.
+> This submission is still blocked on the checklist below regardless.
+
 ---
 
 ## Listing name
