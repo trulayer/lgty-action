@@ -1,6 +1,6 @@
 # lgty-action — working context
 
-The LGTY **tier-2 CI metadata uploader**: a single Go static binary that runs in the **customer's** CI, mints a short-lived **OIDC** token, and sends LGTY read-only database **metadata** (row-count estimates, sizes, dependency edges) to power **Production Impact**. Part of the LGTY platform; sibling of `lgty-backend`, `lgty-frontend`, `lgty-marketing`.
+The LGTY **tier-2 CI metadata uploader**: a single Go static binary that runs in the **customer's** CI, mints a short-lived **OIDC** token, and sends LGTY read-only database **metadata** (row-count estimates, sizes, dependency edges) to power **Production Impact**. It is one component of the LGTY platform; everything it talks to is reached over the public ingest API.
 
 ## Binding laws (non-negotiable)
 
@@ -23,11 +23,8 @@ action.yml Dockerfile      Docker-based GitHub Action
 ## Conventions
 
 - **Go 1.26**, standard layout, table tests, contexts on I/O paths, wrapped errors (no panics).
-- **Dependency-free** for now (stdlib only) so the build is trivially auditable. The one planned dependency is `github.com/jackc/pgx/v5` (registered via `import _ ".../stdlib"`) when the guarded queries are wired to a real DB — marked `TODO(LGT-)`.
+- **One direct dependency**, `github.com/jackc/pgx/v5` (registered via `import _ ".../stdlib"`, used by the guarded queries), so the build stays trivially auditable. Adding a second is a deliberate decision, not a convenience.
 - `make build` produces a static binary; `make fmt vet test` before a PR.
 - Every change goes through a PR (no direct push to `main`). CI must be green (`gofmt`, `vet`, `build`, `test`).
 - Run `make githooks` once after cloning to wire local hooks (`.githooks/`, via `core.hooksPath`): pre-commit runs `gofmt`+`go vet`, pre-push runs `build`+`test` — catches CI failures before they leave your machine.
-
-## Project management
-
-Tracked in **Linear**, team **LGTY**, prefix **LGT-**. Reference the LGT- issue in PRs.
+- This repo is public. Keep internal references — private sibling repos, their file paths and type names, internal specs, internal tracker IDs — out of code comments, docs, and CI config. State what a constraint *is*, not which internal document it came from.

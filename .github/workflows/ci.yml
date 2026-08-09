@@ -30,8 +30,8 @@ jobs:
           --health-timeout 5s
           --health-retries 15
     env:
-      # Both the collector integration test and LGT-34's full orchestration
-      # test must RUN in every PR gate, never silently skip.
+      # Both the collector integration test and the full orchestration test
+      # must RUN in every PR gate, never silently skip.
       LGTY_TEST_DB_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -47,7 +47,7 @@ jobs:
       - name: vet
         run: go vet ./...
 
-      # go.sum is committed (pgx landed in LGT-34). These two steps make an
+      # go.sum is committed. These two steps make an
       # unpinned/tampered/floating dependency a hard CI failure rather than a
       # reviewer's manual catch.
       - name: go mod verify

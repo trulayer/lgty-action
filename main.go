@@ -8,7 +8,7 @@
 //     and foreign-key dependency edges. It NEVER reads or transmits row
 //     data. Enforced in internal/collect/guard.go.
 //
-//   - renders (LGT-404): authenticates with a DIFFERENT short-lived OIDC
+//   - renders: authenticates with a DIFFERENT short-lived OIDC
 //     token, on a DIFFERENT audience, and uploads PNG screenshots the
 //     customer's own CI already rendered, plus the small set of identifiers
 //     named in a manifest the customer's renderer writes. It transmits
@@ -98,7 +98,7 @@ func runMetadata(ctx context.Context, stdout io.Writer, now func() time.Time) er
 	return ingest.Send(ctx, cfg.BackendURL, token, md)
 }
 
-// runRenders is the LGT-404 pipeline: read the customer's capture manifest,
+// runRenders is the renders pipeline: read the customer's capture manifest,
 // resolve the commit it belongs to, and upload every capture it names to
 // POST /v1/renders, then signal completion with POST /v1/renders/complete so
 // an already-published brief can be upgraded in place. See
@@ -175,9 +175,8 @@ func runRenders(ctx context.Context, stdout io.Writer, now func() time.Time) err
 		log.Printf("renders: uploaded %s state=%q index=%d/%d stored=%t", e.File, e.StateID, ack.CaptureIndex, ack.CaptureCount, ack.Stored)
 	}
 
-	// The completion call is made regardless of individual capture failures —
-	// see the "Some states uploaded, others not" outcome in TDD §4.3.1. A
-	// partial batch is still worth telling the backend about: it is what lets
+	// The completion call is made regardless of individual capture failures.
+	// A partial batch is still worth telling the backend about: it is what lets
 	// the resolver show "N of M states compared" instead of leaving the brief
 	// stuck on "not run" because this call never arrived.
 	ack, completeErr := renders.Complete(ctx, cfg.BackendURL, token, commitSHA)

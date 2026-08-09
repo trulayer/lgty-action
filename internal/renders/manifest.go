@@ -10,7 +10,7 @@ import (
 
 // ManifestFile is the fixed name of the manifest a renders-dir must contain.
 // One name, not a configurable one — a caller that wants a different name
-// does not exist yet (see CLAUDE.md's scope-discipline rule).
+// does not exist yet.
 const ManifestFile = "manifest.json"
 
 // ManifestEntry is what a customer's renderer writes to describe ONE
@@ -73,11 +73,10 @@ func LoadManifest(dir string) ([]ManifestEntry, error) {
 }
 
 // validateEntry checks one manifest entry and fills in its defaults
-// (capture_index=0, capture_count=1 when omitted). It mirrors the bounds
-// lgty-backend's own RenderCaptureMetadata/RenderCaptureKey schema enforces
-// (api/openapi.yaml) so a malformed manifest fails fast, locally, against
-// the exact entry at fault — instead of spending a request to learn the
-// backend would have 400'd it anyway.
+// (capture_index=0, capture_count=1 when omitted). It mirrors the bounds the
+// ingest API itself enforces on a capture, so a malformed manifest fails
+// fast, locally, against the exact entry at fault — instead of spending a
+// request to learn the backend would have 400'd it anyway.
 func validateEntry(dir string, e *ManifestEntry) error {
 	if e.File == "" {
 		return fmt.Errorf("\"file\" is required")

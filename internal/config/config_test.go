@@ -84,7 +84,7 @@ func TestLoadRenders_Overrides(t *testing.T) {
 	t.Setenv("LGTY_RENDERS_DIR", "captures")
 	t.Setenv("LGTY_BACKEND_URL", "https://ingest.example.com")
 	t.Setenv("LGTY_COMMIT_SHA", "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef")
-	t.Setenv("LGTY_RENDERS_OIDC_AUDIENCE", "lgty-renders-staging")
+	t.Setenv("LGTY_RENDERS_OIDC_AUDIENCE", "custom-renders-audience")
 	t.Setenv("LGTY_DRY_RUN", "true")
 
 	c, err := LoadRenders()
@@ -97,7 +97,7 @@ func TestLoadRenders_Overrides(t *testing.T) {
 	if c.CommitSHA != "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef" {
 		t.Errorf("CommitSHA = %q, want override", c.CommitSHA)
 	}
-	if c.OIDCAudience != "lgty-renders-staging" {
+	if c.OIDCAudience != "custom-renders-audience" {
 		t.Errorf("OIDCAudience = %q, want override", c.OIDCAudience)
 	}
 	if !c.DryRun {
@@ -120,7 +120,7 @@ func TestLoadMetadata_Defaults(t *testing.T) {
 		t.Errorf("DBKind = %q, want postgres", c.DBKind)
 	}
 	if c.OIDCAudience != "https://api.lgty.ai/ingest/metadata" {
-		t.Errorf("OIDCAudience = %q, want the LGT-36 ingest URI", c.OIDCAudience)
+		t.Errorf("OIDCAudience = %q, want the default ingest audience", c.OIDCAudience)
 	}
 	if !c.DryRun {
 		t.Error("DryRun = false, want true")
@@ -197,7 +197,7 @@ func TestLoadMetadata_Overrides(t *testing.T) {
 	isolateEnv(t)
 	t.Setenv("LGTY_DRY_RUN", "true")
 	t.Setenv("LGTY_BACKEND_URL", "https://ingest.example.com")
-	t.Setenv("LGTY_OIDC_AUDIENCE", "lgty-staging")
+	t.Setenv("LGTY_OIDC_AUDIENCE", "custom-audience")
 	t.Setenv("LGTY_WORKSPACE", "ws_123")
 
 	c, err := LoadMetadata()
@@ -207,7 +207,7 @@ func TestLoadMetadata_Overrides(t *testing.T) {
 	if c.BackendURL != "https://ingest.example.com" {
 		t.Errorf("BackendURL = %q, want override", c.BackendURL)
 	}
-	if c.OIDCAudience != "lgty-staging" {
+	if c.OIDCAudience != "custom-audience" {
 		t.Errorf("OIDCAudience = %q, want override", c.OIDCAudience)
 	}
 	if c.Workspace != "ws_123" {

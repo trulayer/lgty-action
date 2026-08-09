@@ -15,7 +15,7 @@ moving `v1` tag exist, pin to a full commit SHA rather than `@v1` (see the
 README). Entries below accumulate here and are cut into a version at release time.
 
 ### Added
-- **`renders` subcommand (LGT-404):** uploads PNG screenshots your own CI
+- **`renders` subcommand:** uploads PNG screenshots your own CI
   already rendered to `POST /v1/renders`, then signals `POST
   /v1/renders/complete` so an already-published Visual Review brief can be
   upgraded in place. Authenticates with its own short-lived OIDC token on a
@@ -40,13 +40,13 @@ README). Entries below accumulate here and are cut into a version at release tim
 - `tables[].analyzed` in the metadata payload: `false` when a table has never
   been vacuumed/analyzed, signaling that `row_estimate` came from the
   `pg_stat_user_tables.n_live_tup` fallback rather than a post-`ANALYZE`
-  planner statistic (audit 2026-07-31 finding F6).
+  planner statistic.
 
 ### Added (tests / docs, no behavior change)
 - Subprocess-level tests asserting the actual exit code and stderr of the
   compiled binary on a 4xx ingest rejection and on a refused connection —
   closing a coverage gap where the only prior tests asserted `Send()`'s
-  returned Go error rather than the observable CI outcome (TDD §3.7).
+  returned Go error rather than the observable CI outcome.
 - [Exit behavior](docs/inputs-outputs.md#exit-behavior) now states explicitly
   whether a failed upload can block a merge, and how to opt a step into
   `continue-on-error: true`.
@@ -54,8 +54,8 @@ README). Entries below accumulate here and are cut into a version at release tim
 ### Changed
 - **The README's "complete set of data" claim is now scoped to the metadata
   subcommand explicitly**, not the binary as a whole — it was true of the
-  whole binary only because the binary did one thing. Per pm's 2026-08-05
-  ruling this is two separately auditable promises, not one relaxed promise:
+  whole binary only because the binary did one thing. These are two
+  separately auditable promises, not one relaxed promise:
   a workflow that never sets `command: renders` never runs that code path,
   and the metadata claim stays exhaustive and literally true for it, exactly
   as before.
@@ -66,9 +66,9 @@ README). Entries below accumulate here and are cut into a version at release tim
   vars with `${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}` — the `env` context
   does not exist at that scope in a Docker container action, so this was
   invalid syntax that failed the job before a single step could run,
-  independent of `command`. Found by LGT-404's dogfooding in
-  `lgty-frontend` — the first real `uses: trulayer/lgty-action@...`
-  invocation this action has had. The fix is to remove those lines: the
+  independent of `command`. Found by the first real
+  `uses: trulayer/lgty-action@...` invocation this action has had. The fix
+  is to remove those lines: the
   runner's own container handler already injects
   `ACTIONS_ID_TOKEN_REQUEST_URL`/`_TOKEN` (and the standard `GITHUB_*` vars)
   into every Docker container action automatically once the job has
@@ -76,7 +76,7 @@ README). Entries below accumulate here and are cut into a version at release tim
 - `tables[].row_estimate` no longer leaks Postgres's `reltuples = -1`
   "never analyzed" sentinel for tables that have never been vacuumed/analyzed
   — the common case right after a migration creates a table. It now falls
-  back to `pg_stat_user_tables.n_live_tup` (audit 2026-07-31 finding F6).
+  back to `pg_stat_user_tables.n_live_tup`.
 - `dry-run` mode: prints the exact JSON payload to the job log and sends nothing.
 - Signed release automation (checksums, cosign keyless signature, SPDX SBOM,
   and GitHub build-provenance attestation per artifact).

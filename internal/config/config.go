@@ -1,7 +1,7 @@
 // Package config loads the action's runtime configuration from the environment.
 //
 // The binary has two subcommands — metadata (the original, default behavior)
-// and renders (LGT-404) — and they are configured, and validated, separately.
+// and renders — and they are configured, and validated, separately.
 // A DSN typo must never block a renders run, and a missing renders-dir must
 // never block a metadata run: sharing one Config/Load would couple two
 // independently-auditable promises (see action/README.md) at the one place a
@@ -24,7 +24,7 @@ type MetadataConfig struct {
 	Repo         string // owner/name of the repo being onboarded
 	Workspace    string // LGTY workspace identifier
 	DryRun       bool   // if true, print the payload instead of sending it
-	OIDCAudience string // audience requested for the OIDC token; MUST match the backend's expected `aud` (LGT-36 §1)
+	OIDCAudience string // audience requested for the OIDC token; MUST match the backend's expected `aud`
 }
 
 // LoadMetadata reads the metadata subcommand's configuration from LGTY_*
@@ -50,7 +50,7 @@ func LoadMetadata() (MetadataConfig, error) {
 }
 
 // RendersConfig is the resolved runtime configuration for the renders
-// subcommand (the CI-uploaded Visual Review capture uploader, LGT-404).
+// subcommand (the CI-uploaded Visual Review capture uploader).
 type RendersConfig struct {
 	BackendURL string // LGTY ingest base URL (shared default with metadata; distinct path, distinct OIDC audience)
 	RendersDir string // directory holding manifest.json and the PNG captures it names

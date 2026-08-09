@@ -17,8 +17,8 @@ import (
 	"github.com/trulayer/lgty-action/internal/collect"
 )
 
-// TestRun_DryRunWithRealPostgres closes LGT-34's orchestration-level
-// integration requirement: config -> OIDC's honest dry-run degradation ->
+// TestRun_DryRunWithRealPostgres covers the whole orchestration end to end:
+// config -> OIDC's honest dry-run degradation ->
 // guarded pgx collection -> the exact JSON payload printed instead of sent.
 func TestRun_DryRunWithRealPostgres(t *testing.T) {
 	adminDSN := os.Getenv("LGTY_TEST_DB_DSN")

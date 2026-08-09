@@ -159,8 +159,8 @@ func TestComplete_RequestShapeAndResponse(t *testing.T) {
 }
 
 func TestComplete_StaleCommitIsSuccessWithQueuedFalse(t *testing.T) {
-	// TDD §4.3.1: a completion for a commit that is no longer the PR head is
-	// a SUCCESS that updates nothing, never an error.
+	// A completion for a commit that is no longer the PR head is a SUCCESS
+	// that updates nothing, never an error.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

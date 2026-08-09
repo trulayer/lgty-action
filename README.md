@@ -108,8 +108,6 @@ jobs:
           # dry-run: true   # print the manifest instead of uploading
 ```
 
-This is exactly what `lgty-frontend`'s own [`visual-review-capture.yml`](https://github.com/trulayer/lgty-frontend/blob/main/.github/workflows/visual-review-capture.yml) does — the reference implementation of this path, not a shortcut around it.
-
 ## Versioning
 
 Pin this action the standard GitHub Actions way — a moving major-version tag:
@@ -208,8 +206,6 @@ The [`CHANGELOG`](CHANGELOG.md) records what moves within the `@v1` contract.
 
 The metadata pipeline is complete: OIDC fetch, the guard, the three guarded queries wired to a real Postgres database, and the ingest client, all with unit + integration test coverage (`make test`; the integration test needs a real Postgres via `LGTY_TEST_DB_DSN` and is skipped otherwise).
 
-The renders pipeline (LGT-404) is implemented and unit-tested against a fake backend server; it has **not yet been exercised against the deployed production backend**, which I could not confirm is live as of this change (Railway deploys on its own schedule via GitHub integration, and Visual Review is dark on every repo until LGT-395's fix deploys). Treat the wire contract as verified against `lgty-backend`'s real, merged handler code and OpenAPI spec, not yet as verified end-to-end in production.
+The renders pipeline is implemented and unit-tested against a fake backend server, and its wire contract is written against the backend's merged handler code and API spec. It has **not yet been exercised end-to-end against the deployed production backend** — no run of this subcommand against the real ingest endpoint has been observed, so treat the contract as matched, not as verified in production. Visual Review itself is also not yet enabled for general use, so a successful upload today may have nothing downstream to show for it. If you hit a mismatch, that is a bug worth an issue — this section will be updated when a real end-to-end run has been confirmed.
 
 Release automation is also complete: tagging `vX.Y.Z` produces a signed, checksummed, SBOM'd, attested GitHub Release with zero manual steps (see [Verify a release](#verify-a-release)). What's still outstanding is the GitHub Marketplace submission itself, which needs org-admin rights and Developer Agreement acceptance — a one-time human step this repo's automation doesn't do for you.
-
-Tracked in Linear under **LGT-**.

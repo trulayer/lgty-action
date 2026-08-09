@@ -9,7 +9,7 @@ inputs:
   command:
     description: >
       Which subcommand to run: "metadata" (default — the tier-2 DB-metadata
-      uploader, unchanged) or "renders" (LGT-404 — uploads CI-rendered PNG
+      uploader, unchanged) or "renders" (uploads CI-rendered PNG
       screenshots for Visual Review). These are two separately auditable
       promises about what leaves your CI; a workflow that never sets
       command: renders never runs any of that code path. See README.
@@ -70,7 +70,6 @@ runs:
     # that is invalid syntax in a Docker action's `runs.env` (the `env`
     # context does not exist at this scope — confirmed by a real run: this
     # repo's action.yml had never actually been exercised via a live `uses:`
-    # step before LGT-404's dogfooding in lgty-frontend surfaced it, only
-    # unit/integration-tested against the compiled Go binary directly) and
-    # broke EVERY invocation of this action, metadata included, before a
-    # single step could even start. Do not reintroduce it.
+    # step before, only unit/integration-tested against the compiled Go
+    # binary directly) and broke EVERY invocation of this action, metadata
+    # included, before a single step could even start. Do not reintroduce it.
