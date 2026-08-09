@@ -1,6 +1,6 @@
 // Package renders implements the renders subcommand: it reads a manifest of
 // already-captured PNG screenshots the customer's own CI produced and uploads
-// them to LGTY's POST /v1/renders and POST /v1/renders/complete (LGT-404).
+// them to LGTY's POST /v1/renders and POST /v1/renders/complete.
 //
 // It renders nothing itself. Naming no browser, test runner, or component
 // framework is the point — Playwright, Cypress, and Storybook's own runner
@@ -10,9 +10,9 @@ package renders
 import "time"
 
 // CaptureKey is the wire shape of one capture's environment fingerprint.
-// Field names and types are a binding contract with lgty-backend's
-// RenderCaptureKey schema (api/openapi.yaml) — do not rename without a
-// coordinated backend change and a major version bump.
+// Field names and types are a binding contract with the LGTY ingest API's
+// capture-key schema — do not rename without a coordinated backend change and
+// a major version bump.
 type CaptureKey struct {
 	ViewportWidth     int     `json:"viewport_width"`
 	ViewportHeight    int     `json:"viewport_height"`
@@ -26,7 +26,7 @@ type CaptureKey struct {
 
 // CaptureMetadata is the wire shape of the "capture" part of the
 // multipart/form-data body POSTed to /v1/renders. Field names and types are a
-// binding contract with lgty-backend's RenderCaptureMetadata schema.
+// binding contract with the LGTY ingest API's capture-metadata schema.
 type CaptureMetadata struct {
 	CommitSHA    string     `json:"commit_sha"`
 	StateID      string     `json:"state_id"`
@@ -58,7 +58,7 @@ type CompletionAck struct {
 	BriefUpdateQueued bool   `json:"brief_update_queued"`
 }
 
-// wireError mirrors lgty-backend's shared Error schema, used to surface the
+// wireError mirrors the ingest API's shared error body, used to surface the
 // backend's own code/message on a non-2xx response instead of a bare status.
 type wireError struct {
 	Code    string `json:"code"`

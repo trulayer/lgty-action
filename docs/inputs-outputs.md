@@ -28,7 +28,7 @@ trust anything else in this document.
 | Input | Env (when run as a binary) | Default | Required | Description |
 |---|---|---|---|---|
 | `command` | positional CLI argument (`lgty-action metadata` / `lgty-action renders`) | `metadata` | No | Which subcommand to run. |
-| `backend-url` | `LGTY_BACKEND_URL` | `https://api.lgty.ai` | No | LGTY ingest base URL. Override only for self-hosted / staging ingest. Shared by both subcommands; each still uses its own path and OIDC audience underneath it. |
+| `backend-url` | `LGTY_BACKEND_URL` | `https://api.lgty.ai` | No | LGTY ingest base URL. The default is LGTY's ingest endpoint; there is no supported reason to change it, and doing so points your upload at a host that is not LGTY. Shared by both subcommands; each still uses its own path and OIDC audience underneath it. |
 | `dry-run` | `LGTY_DRY_RUN` | `false` | No | If `true`, print what the subcommand would send to the job log and send nothing. No OIDC token or network call is made in this mode, for either subcommand. Accepts `true`/`1`/`TRUE` (anything else is treated as `false`). |
 
 ### Inputs you do not set, for either subcommand
@@ -39,11 +39,15 @@ trust anything else in this document.
   workspace and repo this is* from that token's validated claims (repo → App
   installation → workspace). There is no long-lived credential to leak, and
   nothing to misconfigure into the wrong tenant.
-- **OIDC audience.** Each subcommand's audience is fixed to match the
-  backend's expected value for that endpoint and is not a documented input.
-  (`LGTY_OIDC_AUDIENCE` and `LGTY_RENDERS_OIDC_AUDIENCE` env vars exist for
-  LGTY's own staging use; they are not part of the public contract and you
-  should not need them.)
+- **OIDC audience.** Each subcommand's audience defaults to the value the
+  ingest endpoint expects and is not exposed as an action input. Two env vars
+  — `LGTY_OIDC_AUDIENCE` and `LGTY_RENDERS_OIDC_AUDIENCE` — can override the
+  defaults. They exist because an audience is only meaningful against the host
+  that validates it, and `backend-url` is itself overridable; changing one
+  without the other would just mint a token the other end rejects. They are
+  not part of the public contract, overriding either against the default
+  `backend-url` only produces a token LGTY refuses, and you should not need
+  them.
 
 ---
 
@@ -183,7 +187,7 @@ LGTY refuses to reproduce.
 
 ---
 
-## Renders subcommand (`command: renders`, LGT-404)
+## Renders subcommand (`command: renders`)
 
 Uploads PNG screenshots your own CI already rendered, so **Visual Review** works
 for repos that operate no build LGTY can reach by URL. This subcommand renders
@@ -260,9 +264,8 @@ key's fields — viewport, browser engine/version, color scheme — are facts
 about *how* a screenshot was taken. No generic binary can infer them from
 pixels alone, and guessing would be exactly the kind of "roughly true" claim
 this action's public commitments refuse to make. A manifest is a few lines for
-any renderer to emit at the end of its own capture step (see
-[`lgty-frontend`'s own capture workflow](https://github.com/trulayer/lgty-frontend/blob/main/.github/workflows/visual-review-capture.yml)
-for a real example) and keeps this subcommand tool-agnostic: Playwright,
+any renderer to emit at the end of its own capture step — the example above is
+the complete format — and it keeps this subcommand tool-agnostic: Playwright,
 Cypress, and Storybook's own runner all satisfy it identically.
 
 ### What leaves your perimeter — the payloads
@@ -336,7 +339,7 @@ relaxes it.
 
 **Why the completion call still fires after a partial failure.** A capture
 run that uploaded 8 of 10 states successfully still queues the brief upgrade
-for those 8 — see TDD §4.3.1's "some states uploaded, others not" outcome.
+for those 8, and the brief reports how many states were compared.
 Skipping the completion call on any individual capture failure would leave a
 partially-successful run's coverage stuck on "not run" forever, which is a
 worse outcome than reporting the failure loudly (this subcommand still exits

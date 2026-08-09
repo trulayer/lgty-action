@@ -1,13 +1,11 @@
 package main
 
-// End-to-end coverage for the LGT-404 renders subcommand, run as the actual
-// compiled binary (the same way a GitHub Actions step invokes it), against a
-// fake backend that reproduces the real /v1/renders and /v1/renders/complete
-// wire contract verified against lgty-backend's merged, deployed-to-main
-// code (api/openapi.yaml + internal/renders/{handler,complete}.go,
-// internal/oidcauth/renders_policy.go, as of 2026-08-09). This is NOT a test
-// against the live production backend — see README.md "Status" for what that
-// gap means and why it could not be closed here.
+// End-to-end coverage for the renders subcommand, run as the actual compiled
+// binary (the same way a GitHub Actions step invokes it), against a fake
+// backend that reproduces the /v1/renders and /v1/renders/complete wire
+// contract as of 2026-08-09. This is NOT a test against the live production
+// backend — see README.md "Status" for what that gap means and why it could
+// not be closed here.
 //
 // No real Postgres is needed for these tests (unlike main_ingest_failure_test.go):
 // the renders subcommand never touches a database.

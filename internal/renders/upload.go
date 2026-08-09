@@ -17,9 +17,9 @@ import (
 // (PNG bytes). The order is the wire contract, not a style choice — the
 // backend authorizes the request from the capture part before it reads a
 // byte of the image part, so an unauthorized caller's image bytes are never
-// decoded on its behalf (lgty-backend internal/renders/handler.go). This
-// client preserves that order for the same reason: sending anything else
-// first would misrepresent what actually happens on the wire.
+// decoded on its behalf. This client preserves that order for the same
+// reason: sending anything else first would misrepresent what actually
+// happens on the wire.
 func Upload(ctx context.Context, backendURL, oidcToken string, meta CaptureMetadata, img Image) (CaptureAck, error) {
 	contentType, body, err := buildMultipart(meta, img)
 	if err != nil {

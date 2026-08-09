@@ -1,10 +1,10 @@
 # GoReleaser config for lgty-action's signed, checksummed, SBOM'd release.
 # Driven by .github/workflows/release.yml on every `v*` tag push.
 #
-# Orchestration choice: GoReleaser over hand-wired YAML, per security-c's
-# LGT-37 recommendation — it does the cross-compile matrix, -trimpath,
-# SOURCE_DATE_EPOCH honoring, checksums, cosign signing, and SBOM generation
-# as first-class phases instead of bespoke shell steps.
+# Orchestration choice: GoReleaser over hand-wired YAML — it does the
+# cross-compile matrix, -trimpath, SOURCE_DATE_EPOCH honoring, checksums,
+# cosign signing, and SBOM generation as first-class phases instead of
+# bespoke shell steps.
 version: 2
 
 project_name: lgty-action
@@ -43,7 +43,7 @@ archives:
       - README.md
 
 # One combined checksum file covering every released artifact — this is what
-# gets signed (§2 of the LGT-37 spec), not each binary individually.
+# gets signed, not each binary individually.
 checksum:
   name_template: "checksums.txt"
   algorithm: sha256
@@ -58,20 +58,19 @@ sboms:
       - "${artifact}.spdx.json"
 
 # Cosign keyless (OIDC/Sigstore) signing of the checksum file — not a stored
-# key, per the repo's own "no long-lived secrets" law (CLAUDE.md law #3).
+# key, per this repo's "no long-lived secrets" law (CLAUDE.md law #3).
 #
-# NOTE / verified deviation from the LGT-37 spec's literal artifact names:
-# the spec asks for `checksums.txt.pem` + `checksums.txt.sig` via
-# `cosign sign-blob --yes`. Current cosign (v3.1.2, verified against the
-# CLI's own --help/doc, not memory) has *removed* the separate
+# NOTE on the artifact name: an older design called for a separate
+# `checksums.txt.pem` + `checksums.txt.sig` pair. Current cosign (v3.1.2,
+# verified against the CLI's own --help/doc, not memory) has *removed* the
 # --output-certificate/--output-signature flags that produced those two
 # files — sign-blob now only supports the unified --bundle format. Rather
 # than hand-parse the internal bundle JSON to fake the old two-file shape
 # (fragile, undocumented schema, contrary to this repo's own
 # "readable and auditable" ethos), this signs into a single
 # `checksums.txt.bundle` file — cosign's own current recommended format,
-# also what GoReleaser's own docs demonstrate. Flagged for security-c /
-# the QA-security gate to confirm before LGT-39 closes.
+# also what GoReleaser's own docs demonstrate. README "Verify a release"
+# documents the matching verification command.
 signs:
   - id: checksums-sign
     cmd: cosign

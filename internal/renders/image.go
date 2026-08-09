@@ -11,10 +11,10 @@ import (
 	"os"
 )
 
-// MaxImageBytes mirrors lgty-backend's artifactstore.MaxArtifactBytes (5 MiB
-// per capture, api/openapi.yaml "413" response). Checked locally so an
-// oversize capture fails fast in the customer's own CI log instead of after
-// a multi-megabyte upload the backend was always going to reject.
+// MaxImageBytes mirrors the ingest API's own per-capture size limit — 5 MiB,
+// above which it answers 413. Checked locally so an oversize capture fails
+// fast in the customer's own CI log instead of after a multi-megabyte upload
+// the backend was always going to reject.
 const MaxImageBytes = 5 << 20
 
 // ErrImageTooLarge is returned when a capture exceeds MaxImageBytes.

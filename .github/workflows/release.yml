@@ -2,8 +2,7 @@ name: release
 
 # Tag-triggered, zero manual steps: pushing vX.Y.Z produces a signed,
 # checksummed, SBOM'd, attested GitHub Release. See .goreleaser.yaml for the
-# build/checksum/sign/SBOM pipeline itself (GoReleaser is the orchestrator
-# per security-c's LGT-37 spec).
+# build/checksum/sign/SBOM pipeline itself (GoReleaser is the orchestrator).
 on:
   push:
     tags:
@@ -70,8 +69,7 @@ jobs:
       # every released archive + the checksum file to this exact workflow,
       # commit, and runner. ~3 lines, no secret, no maintenance burden.
       # (The heavier slsa-github-generator reusable-workflow path is
-      # deliberately deferred for v1 — see the LGT-37 spec, §5 — not
-      # second-guessed here.)
+      # deliberately deferred past v1, not second-guessed here.)
       - name: Attest build provenance
         uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4.1.1
         with:

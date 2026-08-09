@@ -1,19 +1,18 @@
 package main
 
-// These tests close TDD §3.7 requirement 2 for the ingest path: a degrade path
-// needs a test that inspects the artifact an operator actually reads (the CLI's
-// exit code and its printed message), not an intermediate Go error value. The
-// existing internal/ingest unit tests only assert on Send()'s returned error —
-// that closes requirement 1 (the failure is detected) but not requirement 2
-// (the failure is OBSERVABLE the way a customer's CI log shows it). These tests
-// run the actual compiled binary as a subprocess, the same way a GitHub Actions
-// step invokes it, and assert on its real exit code and stderr.
+// These tests cover the observability half of the ingest degrade path. A
+// degrade path needs a test that inspects the artifact an operator actually
+// reads — the CLI's exit code and its printed message — not an intermediate
+// Go error value. The existing internal/ingest unit tests only assert on
+// Send()'s returned error: that proves the failure is detected, but not that
+// it is OBSERVABLE the way a customer's CI log shows it. These tests run the
+// actual compiled binary as a subprocess, the same way a GitHub Actions step
+// invokes it, and assert on its real exit code and stderr.
 //
-// Context: action PR #15 added `tables[].analyzed` to the payload before the
-// backend's OpenAPI contract had the field, so every upload from the released
-// action got rejected with 400 by the backend's DisallowUnknownFields decoder
-// (fixed in backend PR #194). ingest.Send already wrapped that as an error and
-// main() already mapped it to a non-zero exit via log.Fatal — this incident
+// Context: PR #15 added `tables[].analyzed` to the payload before the ingest
+// API accepted the field, so every upload from the released action was
+// rejected with a 400. ingest.Send already wrapped that as an error and
+// main() already mapped it to a non-zero exit via log.Fatal — the failure
 // never silently passed. These tests are what should have already existed to
 // prove that observable outcome, not a behavior change.
 //

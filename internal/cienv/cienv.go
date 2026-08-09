@@ -16,13 +16,11 @@ import (
 //
 // This exists because of one sharp edge: on a pull_request-triggered run,
 // $GITHUB_SHA is the ephemeral merge commit GitHub built to run CI against —
-// never the pull request's own head. Uploading captures under that SHA would
-// silently mismatch the commit the backend's own OIDC-claim binding checks
-// against (lgty-backend internal/renders/handler.go, "NEVER claims.Sha" on
-// the head path), and every upload would be refused. lgty-frontend's own
-// capture workflow already computes this by hand
-// (LGTY_CAPTURE_COMMIT_SHA in visual-review-capture.yml); resolving it here
-// means no other customer has to reproduce that by hand.
+// never the pull request's own head. The ingest API binds every capture to
+// the pull request's real head SHA, which it derives from the OIDC token's
+// own claims rather than from anything this binary sends; a capture uploaded
+// under the merge commit therefore matches nothing and is refused. Resolving
+// the head here means no caller has to compute it by hand in their workflow.
 func ResolveHeadCommitSHA() (string, error) {
 	if os.Getenv("GITHUB_EVENT_NAME") != "pull_request" {
 		sha := os.Getenv("GITHUB_SHA")
@@ -59,9 +57,9 @@ func ResolveHeadCommitSHA() (string, error) {
 // DefaultRunnerImage returns the GitHub-hosted runner image identifier
 // (e.g. "ubuntu24-20250801.1.0"), or "" when the CI provider does not expose
 // one — most notably self-hosted runners, which set neither variable. "" is
-// a legitimate answer, not an error: RenderCaptureKey.runner_image is the
-// one optional component of the capture key precisely because a CI system
-// that does not expose this cannot be made to (api/openapi.yaml).
+// a legitimate answer, not an error: runner_image is the one optional
+// component of the capture key precisely because a CI system that does not
+// expose this cannot be made to.
 func DefaultRunnerImage() string {
 	os_, version := os.Getenv("ImageOS"), os.Getenv("ImageVersion")
 	switch {
