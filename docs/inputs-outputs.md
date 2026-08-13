@@ -160,7 +160,7 @@ ever show red on an unrelated PR, add `continue-on-error: true` to your own
 step, the same way you would for any other CI step you consider advisory:
 
 ```yaml
-- uses: trulayer/lgty-action@v1
+- uses: trulayer/lgty-action@v1.0.0
   continue-on-error: true
   with:
     db-dsn: ${{ secrets.LGTY_READONLY_DSN }}

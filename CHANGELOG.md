@@ -4,15 +4,20 @@ All notable changes to `lgty-action` are recorded here. This project follows
 [Semantic Versioning](https://semver.org): the public contract is the action's
 [inputs](docs/inputs-outputs.md#inputs) and the [metadata payload
 shape](docs/inputs-outputs.md#what-leaves-your-perimeter--the-payload). A change
-to either is a breaking change and bumps the major version; the moving `@v1` tag
-only ever moves forward within a compatible contract (see the [README
-versioning section](README.md#versioning)).
+to either is a breaking change and bumps the major version (see the [README
+versioning section](README.md#versioning) for how to pin, and why there is no
+moving major-version tag yet).
 
 ## [Unreleased]
 
-Nothing has been tagged for public release yet. Until a signed `v1.0.0` and the
-moving `v1` tag exist, pin to a full commit SHA rather than `@v1` (see the
-README). Entries below accumulate here and are cut into a version at release time.
+Entries accumulate here and are cut into a version at release time.
+
+## [1.0.0] - 2026-08-12
+
+First tagged, signed public release. Pin to `@v1.0.0` or later — see the
+[README versioning section](README.md#versioning) for the exact guarantee
+and how to resolve the underlying commit SHA if you'd rather pin that
+directly.
 
 ### Added
 - **`renders` subcommand:** uploads PNG screenshots your own CI
@@ -83,4 +88,5 @@ README). Entries below accumulate here and are cut into a version at release tim
 - Developer docs: the [inputs/outputs contract](docs/inputs-outputs.md) and the
   [Marketplace listing draft](docs/marketplace-listing.md).
 
-[Unreleased]: https://github.com/trulayer/lgty-action/commits/main
+[Unreleased]: https://github.com/trulayer/lgty-action/compare/v1.0.0...main
+[1.0.0]: https://github.com/trulayer/lgty-action/releases/tag/v1.0.0
