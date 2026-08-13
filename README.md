@@ -77,7 +77,7 @@ jobs:
       id-token: write   # mint the short-lived OIDC token; no long-lived secret
       contents: read
     steps:
-      - uses: trulayer/lgty-action@v1
+      - uses: trulayer/lgty-action@v1.0.0
         with:
           db-dsn: ${{ secrets.LGTY_READONLY_DSN }}
           # dry-run: true   # print the payload instead of sending it
@@ -101,32 +101,45 @@ jobs:
       # ... your own steps that render screenshots to visual-review-captures/,
       # writing visual-review-captures/manifest.json alongside them —
       # see docs/inputs-outputs.md for the manifest format.
-      - uses: trulayer/lgty-action@v1
+      - uses: trulayer/lgty-action@v1.0.0
         with:
           command: renders
           renders-dir: visual-review-captures/
           # dry-run: true   # print the manifest instead of uploading
 ```
 
+If your own org's CI policy rejects mutable action refs (for example Semgrep's
+`yaml.github-actions.security.github-actions-mutable-action-tag` rule), it
+will flag `actions/checkout@v5` above too, not just this action — that policy
+applies to every `uses:` in your workflow file. You'll need to hand-pin the
+standard actions (`actions/checkout`, your language setup action, etc.) to
+full commit SHAs the same way described below for this action.
+
 ## Versioning
 
-Pin this action the standard GitHub Actions way — a moving major-version tag:
+**Pin to a tagged release — `@v1.0.0` or later — never to a bare commit from `main`'s history.** `main` is a working branch: it can and has contained commits that fail before this action's own code ever runs (a broken Docker-action manifest is invisible to `go test` and only surfaces on a real `uses:` invocation). A tagged release is the one commit on this whole timeline we are telling you is safe to depend on — every `vX.Y.Z` tag is cut only from a commit that was already green on `main`, and receives its own final go/no-go verification (see [Verify a release](#verify-a-release)) before you'd ever reach for it.
 
 ```yaml
-- uses: trulayer/lgty-action@v1
+- uses: trulayer/lgty-action@v1.0.0
 ```
 
-`@v1` will move forward as fixes and additive capability ship within the v1 input/output contract; a breaking change to `action.yml`'s inputs, either payload shape, or the manifest format bumps to `@v2`. That's the same convention used by `actions/checkout`, `codecov/codecov-action`, and most of the Marketplace — pin the major, get patches for free, opt in to breaking changes explicitly.
+**The guarantee this gives you, stated explicitly:** this repository enforces a tag-protection ruleset on every `v*` tag — deletion and force-retargeting are both blocked, with no bypass actor, verifiable yourself via `gh api repos/trulayer/lgty-action/rulesets`. So on this specific repo, `@v1.0.0` is exactly as immutable as pinning the commit SHA it points to: the tag cannot be silently moved out from under you, and the release artifacts at that tag can be independently re-verified at any time via the cosign signature, checksum, and build-provenance attestation below. **What you give up** relative to a raw SHA is nothing on immutability — only that you're trusting this repo's own ruleset rather than needing to trust it, which is a small step, not a large one. Bumping to a new patch/minor release is still a manual, explicit edit of your workflow file, same as a SHA — nothing here auto-updates you.
 
-**This depends on a tagged, signed release existing.** Until this repo's release automation ships a signed `v1.0.0` and the moving `v1` tag, `@v1` in the example above is aspirational — pin to a full commit SHA instead:
+If you'd rather not rely on the ruleset at all and want the tag reference itself to carry zero trust, resolve and pin the commit SHA the tag points to instead:
+
+```bash
+git rev-parse v1.0.0^{commit}
+```
 
 ```yaml
-- uses: trulayer/lgty-action@<40-character-commit-sha>
+- uses: trulayer/lgty-action@<the-sha-above>
 ```
 
-For the strictest supply-chain posture — worth considering for this action specifically, since it authenticates to your database and uploads your screenshots — pin to a full commit SHA even after `@v1` exists, per [GitHub's own guidance on using third-party actions](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions#using-third-party-actions). Tags are mutable; a commit SHA is not, and because this repo is public you can diff exactly what changed between any two SHAs before you move.
+This is the [strictest posture GitHub itself recommends for third-party actions](https://docs.github.com/en/actions/security-for-github-actions/security-guides/security-hardening-for-github-actions#using-third-party-actions) — worth considering here specifically, since this action authenticates to your database and uploads your screenshots. Either way, resolve the SHA from a **tagged release**, never from `main`'s commit list — a SHA you pick off `main` yourself has none of the pre-tag verification a release went through.
 
-Never pin to `@main` — it can change under you at any time, in ways this README hasn't necessarily caught up to yet.
+We deliberately have **not** cut a moving `@v1` major tag (the "pin the major, get patches for free" convention `actions/checkout` and most of the Marketplace use). A moving tag is convenient, but by definition it has to retarget on every patch release — that reopens exactly the risk pinning to an exact version closes. If enough adopters want that convenience despite the tradeoff, it's a separate, later call; today `@v1.0.0`-and-up exact tags are the only sanctioned mutable-looking reference, and they aren't actually mutable per the ruleset above.
+
+Never pin to `@main` — it can change under you at any time, in ways this README hasn't necessarily caught up to yet, and it carries none of a tagged release's pre-verification.
 
 ### Verify a release
 
@@ -210,4 +223,4 @@ The renders pipeline has been **exercised end-to-end against the deployed produc
 
 **What that does and doesn't show.** It shows the wire contract works against production end to end, on more than one codebase's rendering setup. It does **not** show Visual Review has been used by a customer — both runs were operator-initiated verification, not organic usage — and it does not cover authenticated-state capture: `kindscan-frontend` has no fixture mechanism for reaching a signed-in state (see its own `visual-review-capture.yml` comments), so its captures are limited to public, unauthenticated routes. A repo whose interesting states are all behind auth is not yet a proven case. If you hit a mismatch, that is a bug worth an issue.
 
-Release automation is also complete: tagging `vX.Y.Z` produces a signed, checksummed, SBOM'd, attested GitHub Release with zero manual steps (see [Verify a release](#verify-a-release)). What's still outstanding is the GitHub Marketplace submission itself, which needs org-admin rights and Developer Agreement acceptance — a one-time human step this repo's automation doesn't do for you.
+Release automation is also complete: tagging `vX.Y.Z` produces a signed, checksummed, SBOM'd, attested GitHub Release with zero manual steps (see [Verify a release](#verify-a-release)). `v1.0.0` is the first cut release — pin to it or later per [Versioning](#versioning) rather than to a bare commit from `main`. What's still outstanding is the GitHub Marketplace submission itself, which needs org-admin rights and Developer Agreement acceptance — a one-time human step this repo's automation doesn't do for you.

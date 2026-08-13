@@ -102,7 +102,7 @@ jobs:
       id-token: write   # mint the short-lived OIDC token; no long-lived secret
       contents: read
     steps:
-      - uses: trulayer/lgty-action@v1
+      - uses: trulayer/lgty-action@v1.0.0
         with:
           db-dsn: ${{ secrets.LGTY_READONLY_DSN }}
           # dry-run: true   # print the payload instead of sending it
