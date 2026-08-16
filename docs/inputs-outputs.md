@@ -135,6 +135,7 @@ The metadata subcommand exits non-zero (failing the step) in these cases:
 |---|---|
 | `db-kind` is not `postgres` | Fails fast before connecting to anything. |
 | `db-dsn` is unset and `dry-run` is not `true` | Fails fast — never silently sends an empty payload. |
+| `db-dsn` cannot be parsed as a Postgres connection string | Fails fast, before connecting, naming `db-dsn` and the expected forms. Surrounding whitespace is trimmed first, so a secret store that appends a newline is not itself a failure. The value is a credential and is never echoed in the message. |
 | OIDC token cannot be obtained (and not `dry-run`) | Fails with a clear message (most often: the job is missing `permissions: id-token: write`). |
 | The database is unreachable or a query errors | Fails with the wrapped error. |
 | The ingest endpoint returns a non-2xx status | Fails with the status and response body. |
