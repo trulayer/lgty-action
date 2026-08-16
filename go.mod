@@ -7,7 +7,7 @@ go 1.26
 // between a local build, CI, and a third-party reproduction. CI resolves this
 // via actions/setup-go's go-version-file (which reads this directive) with
 // check-latest: false. Bump deliberately, in a reviewed PR.
-toolchain go1.26.5
+toolchain go1.26.6
 
 // Dependencies are intentionally minimal so the build stays trivial to audit.
 // The ONLY direct dependency is the Postgres driver (github.com/jackc/pgx/v5,

@@ -4,7 +4,8 @@
 # a mutable dependency in the trust path for a public, auditability-first
 # repo. Bump digests deliberately in a reviewed PR (Renovate/Dependabot can
 # propose the bump; a human still reviews it under the normal CI gate).
-FROM golang:1.26@sha256:3aff6657219a4d9c14e27fb1d8976c49c29fddb70ba835014f477e1c70636647 AS build
+# 1.26.6
+FROM golang:1.26@sha256:640a234f4bea3e399c056b7b8f9c667c4939befae8db2f14e9785e16eccd4205 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
