@@ -211,7 +211,23 @@ func wantTable(ctx context.Context, t *testing.T, dsn, schema, table string, col
 		schema+"."+table).Scan(&size); err != nil {
 		t.Fatalf("relation size %s.%s: %v", schema, table, err)
 	}
+	// The analyze clock is read back from the database rather than written down
+	// here, for the same reason the size is: the expectation has to be what
+	// Postgres actually reports, not a value this test invented. The seed
+	// ANALYZEs these tables, so it is set.
+	var analyzedAt sql.NullTime
+	if err := db.QueryRowContext(ctx, `
+		SELECT GREATEST(last_analyze, last_autoanalyze)
+		FROM pg_stat_user_tables WHERE relid = $1::regclass`,
+		schema+"."+table).Scan(&analyzedAt); err != nil {
+		t.Fatalf("analyze clock %s.%s: %v", schema, table, err)
+	}
+	if !analyzedAt.Valid {
+		t.Fatalf("%s.%s has no analyze timestamp, but the seed ANALYZEd it: a table with no clock is declined downstream, so this fixture would stop asserting what it exists to assert", schema, table)
+	}
+	at := analyzedAt.Time.UTC()
 	return collect.TableMeta{
-		Schema: schema, Name: table, RowEstimate: 1, Analyzed: true, TotalBytes: size, ColumnCount: columns,
+		Schema: schema, Name: table, RowEstimate: 1, Analyzed: true, AnalyzedAt: &at,
+		TotalBytes: size, ColumnCount: columns,
 	}
 }
