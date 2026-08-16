@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // isolateEnv clears every variable LoadMetadata reads so each case starts
 // from a known blank slate regardless of the ambient CI environment.
@@ -151,6 +154,106 @@ func TestLoadMetadata_DSNSatisfiesNonDryRun(t *testing.T) {
 	}
 	if c.DryRun {
 		t.Error("DryRun = true, want false")
+	}
+}
+
+// A CI secret store commonly returns the value with a newline or space
+// attached to one end. Leading whitespace is the damaging case: it defeats the
+// driver's "postgres://" prefix test, the string is parsed as libpq
+// keyword/value pairs instead of a URL, and the run dies mid-collection.
+func TestLoadMetadata_TrimsDSNWhitespace(t *testing.T) {
+	const want = "postgres://ro@localhost:5432/app"
+	for name, raw := range map[string]string{
+		"leading newline":  "\n" + want,
+		"trailing newline": want + "\n",
+		"leading space":    " " + want,
+		"surrounding":      "\n  " + want + "  \n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			isolateEnv(t)
+			t.Setenv("LGTY_DB_DSN", raw)
+
+			c, err := LoadMetadata()
+			if err != nil {
+				t.Fatalf("LoadMetadata() error = %v", err)
+			}
+			if c.DBDSN != want {
+				t.Errorf("DBDSN = %q, want %q", c.DBDSN, want)
+			}
+		})
+	}
+}
+
+// A DSN that is whitespace all the way through was set by someone — reporting
+// it as missing would point them at the wrong problem.
+func TestLoadMetadata_RejectsWhitespaceOnlyDSN(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("LGTY_DB_DSN", "  \n ")
+
+	_, err := LoadMetadata()
+	if err == nil {
+		t.Fatal("expected an error for a whitespace-only DSN outside dry-run")
+	}
+	if !strings.Contains(err.Error(), "only whitespace") {
+		t.Errorf("error = %q, want it to say the value was only whitespace rather than missing", err)
+	}
+}
+
+// The failure a customer meets on their first run has to name the input, say
+// what was expected, and never put the credential in their CI log.
+func TestLoadMetadata_RejectsUnparseableDSN(t *testing.T) {
+	tests := map[string]struct {
+		dsn       string
+		wantShape string
+	}{
+		"not a connection string at all": {dsn: "hunter2", wantShape: "no postgres:// or postgresql:// scheme"},
+		"quoted by the shell":            {dsn: `"postgres://ro@localhost:5432/app"`, wantShape: "no postgres:// or postgresql:// scheme"},
+		"scheme present, URL malformed":  {dsn: "postgres://ro@local host:5432/app", wantShape: "a postgres:// scheme"},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			isolateEnv(t)
+			t.Setenv("LGTY_DB_DSN", tc.dsn)
+
+			_, err := LoadMetadata()
+			if err == nil {
+				t.Fatalf("expected an error for DSN %q", tc.dsn)
+			}
+			msg := err.Error()
+			if !strings.Contains(msg, "LGTY_DB_DSN could not be parsed as a Postgres connection string") {
+				t.Errorf("error = %q, want it to name the input and the problem", msg)
+			}
+			if !strings.Contains(msg, tc.wantShape) {
+				t.Errorf("error = %q, want it to report %q", msg, tc.wantShape)
+			}
+			if !strings.Contains(msg, "postgres://USER:PASSWORD@HOST:5432/DBNAME") {
+				t.Errorf("error = %q, want it to state the expected form", msg)
+			}
+			if strings.Contains(msg, tc.dsn) {
+				t.Errorf("error = %q leaks the DSN, which is a credential", msg)
+			}
+		})
+	}
+}
+
+// The DSN is a credential and no part of it may reach a CI log. The driver's
+// own message redacts the password but still quotes the role, host, port and
+// database back — which is why the driver error is discarded here rather than
+// wrapped.
+func TestLoadMetadata_UnparseableDSNErrorLeaksNoSubstring(t *testing.T) {
+	isolateEnv(t)
+	const dsn = "postgres://svc_ro:hunter2@db.internal.example:5432/orders\nbogus"
+	t.Setenv("LGTY_DB_DSN", dsn)
+
+	_, err := LoadMetadata()
+	if err == nil {
+		t.Fatal("expected an error for an unparseable DSN")
+	}
+	msg := err.Error()
+	for _, secret := range []string{"svc_ro", "hunter2", "db.internal.example", "orders"} {
+		if strings.Contains(msg, secret) {
+			t.Errorf("error = %q contains %q from the DSN", msg, secret)
+		}
 	}
 }
 

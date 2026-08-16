@@ -10,9 +10,12 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // MetadataConfig is the resolved runtime configuration for the metadata
@@ -31,10 +34,17 @@ type MetadataConfig struct {
 // environment variables (which the GitHub Action maps from its inputs) and
 // validates it.
 func LoadMetadata() (MetadataConfig, error) {
+	rawDSN := os.Getenv("LGTY_DB_DSN")
 	c := MetadataConfig{
-		BackendURL:   env("LGTY_BACKEND_URL", "https://api.lgty.ai"),
-		DBKind:       env("LGTY_DB_KIND", "postgres"),
-		DBDSN:        os.Getenv("LGTY_DB_DSN"),
+		BackendURL: env("LGTY_BACKEND_URL", "https://api.lgty.ai"),
+		DBKind:     env("LGTY_DB_KIND", "postgres"),
+		// Trimmed, like every other value read here. A CI secret store
+		// routinely hands back a value carrying a leading or trailing
+		// newline from however it was pasted in, and leading whitespace in
+		// particular defeats the driver's "postgres://" prefix test — the
+		// string is then parsed as libpq keyword/value pairs and rejected,
+		// far from the whitespace that caused it.
+		DBDSN:        strings.TrimSpace(rawDSN),
 		Repo:         env("LGTY_REPO", os.Getenv("GITHUB_REPOSITORY")),
 		Workspace:    os.Getenv("LGTY_WORKSPACE"),
 		DryRun:       boolEnv("LGTY_DRY_RUN", false),
@@ -44,9 +54,42 @@ func LoadMetadata() (MetadataConfig, error) {
 		return c, errors.New("only postgres is supported in this iteration")
 	}
 	if c.DBDSN == "" && !c.DryRun {
+		if rawDSN != "" {
+			// Set, but nothing survived trimming. Saying "is required" here
+			// would assert the customer never set it, which is wrong and
+			// sends them looking in the wrong place.
+			return c, errors.New("LGTY_DB_DSN is set but contains only whitespace — set it to a Postgres connection string (or set LGTY_DRY_RUN=true)")
+		}
 		return c, errors.New("LGTY_DB_DSN is required (or set LGTY_DRY_RUN=true)")
 	}
+	// Parse here rather than letting the first query fail: pgx.ParseConfig is
+	// exactly what the driver calls when the connection is opened, so this
+	// rejects nothing the collector would have accepted — it only moves the
+	// failure to the place that can name the input responsible, and replaces
+	// a driver message that quotes the connection string back into the log.
+	if c.DBDSN != "" {
+		if _, err := pgx.ParseConfig(c.DBDSN); err != nil {
+			return c, unparseableDSNError(c.DBDSN)
+		}
+	}
 	return c, nil
+}
+
+// unparseableDSNError describes a rejected LGTY_DB_DSN without disclosing it.
+// The connection string is a customer credential, so neither it, any substring
+// of it, nor the driver's own error (which quotes the value) may appear in the
+// message. What is reported is its length and whether it carried a URL scheme
+// — enough to tell a truncated paste from a malformed URL, and not enough to
+// reconstruct any part of the value.
+func unparseableDSNError(dsn string) error {
+	shape := "no postgres:// or postgresql:// scheme, so it was read as libpq keyword/value pairs"
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		shape = "a postgres:// scheme, so it was read as a URL"
+	}
+	return fmt.Errorf("LGTY_DB_DSN could not be parsed as a Postgres connection string: the value is %d characters long and has %s. "+
+		"Expected either a URL (postgres://USER:PASSWORD@HOST:5432/DBNAME) or libpq keyword/value pairs (host=HOST user=USER dbname=DBNAME). "+
+		"The value is a credential and is not echoed here — check the secret for surrounding quotes, an embedded newline, a truncated paste, or an unsupported connection parameter",
+		len(dsn), shape)
 }
 
 // RendersConfig is the resolved runtime configuration for the renders
