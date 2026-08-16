@@ -38,9 +38,26 @@ type TableMeta struct {
 	// Analyzed is false when RowEstimate came from the n_live_tup fallback
 	// rather than a post-ANALYZE planner statistic — i.e. the estimate is
 	// less certain, not that the table is empty.
-	Analyzed    bool  `json:"analyzed"`
-	TotalBytes  int64 `json:"total_bytes"`  // pg_total_relation_size
-	ColumnCount int   `json:"column_count"` // count only — never column values
+	Analyzed bool `json:"analyzed"`
+	// AnalyzedAt is when the DATABASE last computed RowEstimate —
+	// GREATEST(pg_stat_user_tables.last_analyze, last_autoanalyze). It is a
+	// different clock from CollectedAt above, which is when this run READ the
+	// number: a fresh read of a months-old statistic is not a fresh statistic,
+	// and one timestamp cannot say which of the two it names.
+	//
+	// OMITTED when the table has never been analyzed (both timestamps null).
+	// That is a real state, not a gap in this collector: right after a bulk
+	// load, or on a table a migration just created, reltuples can be 0 or
+	// arbitrary — and plain VACUUM sets it non-negative without ANALYZE ever
+	// having run, so a non-negative estimate is not on its own evidence anyone
+	// computed it. Reporting no timestamp is what lets the consumer decline to
+	// present a number instead of presenting one nobody can date.
+	//
+	// Reads pg_stat_user_tables, which is world-readable — no additional
+	// database privilege beyond what this action already needs.
+	AnalyzedAt  *time.Time `json:"analyzed_at,omitempty"`
+	TotalBytes  int64      `json:"total_bytes"`  // pg_total_relation_size
+	ColumnCount int        `json:"column_count"` // count only — never column values
 }
 
 // DepEdge is a foreign-key dependency between two tables.
@@ -66,6 +83,7 @@ SELECT n.nspname AS schema, c.relname AS name,
             ELSE c.reltuples::bigint
        END AS row_estimate,
        c.reltuples >= 0 AS analyzed,
+       GREATEST(s.last_analyze, s.last_autoanalyze) AS analyzed_at,
        pg_total_relation_size(c.oid) AS total_bytes
 FROM pg_class c
 JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -156,9 +174,18 @@ func collectTables(ctx context.Context, db Querier) ([]TableMeta, error) {
 	}
 	for rows.Next() {
 		var t TableMeta
-		if err := rows.Scan(&t.Schema, &t.Name, &t.RowEstimate, &t.Analyzed, &t.TotalBytes); err != nil {
+		// analyzed_at is NULL for a table nothing has ever analyzed — GREATEST
+		// ignores NULLs and yields NULL only when both timestamps are unset — so
+		// it scans through a NullTime and stays absent from the payload rather
+		// than becoming a zero time that would read as 1 January year 1.
+		var analyzedAt sql.NullTime
+		if err := rows.Scan(&t.Schema, &t.Name, &t.RowEstimate, &t.Analyzed, &analyzedAt, &t.TotalBytes); err != nil {
 			_ = rows.Close()
 			return nil, err
+		}
+		if analyzedAt.Valid {
+			at := analyzedAt.Time.UTC()
+			t.AnalyzedAt = &at
 		}
 		tc := t
 		byKey[t.Schema+"."+t.Name] = &tc

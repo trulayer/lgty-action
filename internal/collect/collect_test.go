@@ -3,7 +3,9 @@ package collect
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -69,6 +71,14 @@ func TestRun_Integration(t *testing.T) {
 	}
 	if !customers.Analyzed {
 		t.Error("customers.Analyzed = false, want true: this table was explicitly ANALYZEd by the test seed")
+	}
+	// The second clock: WHEN the database computed that estimate. Without it the
+	// consumer can only report when this run read the number, which says nothing
+	// about how old the statistic itself is.
+	if customers.AnalyzedAt == nil {
+		t.Error("customers.AnalyzedAt = nil, want the timestamp of the seed's ANALYZE: a consumer with no computation time cannot date the estimate and will decline to present it")
+	} else if age := time.Since(*customers.AnalyzedAt); age < 0 || age > time.Hour {
+		t.Errorf("customers.AnalyzedAt = %s (age %s), want the ANALYZE this test just ran", customers.AnalyzedAt, age)
 	}
 	if customers.TotalBytes <= 0 {
 		t.Errorf("customers.TotalBytes = %d, want > 0", customers.TotalBytes)
@@ -136,6 +146,13 @@ func TestRun_Integration_NeverAnalyzedTable(t *testing.T) {
 	}
 	if found.Analyzed {
 		t.Error("Analyzed = true for a table that was never ANALYZEd; want false so a caller can tell this is a live-tuple fallback, not a planner statistic")
+	}
+	// The never-analyzed state has to be ABSENT on the wire, not a zero time: a
+	// zero time.Time marshals as year 1 and would read as a real, extremely old
+	// computation rather than as "nothing ever computed this". Absent is what
+	// lets the consumer decline to present a number at all.
+	if found.AnalyzedAt != nil {
+		t.Errorf("AnalyzedAt = %s for a table nothing has ever analyzed; want nil so the field is omitted from the payload", found.AnalyzedAt)
 	}
 }
 
@@ -210,4 +227,36 @@ func seedDB(ctx context.Context, t *testing.T, dsn string) {
 		_, _ = db.ExecContext(cctx, `DROP SCHEMA IF EXISTS `+testSchema+` CASCADE`)
 		_ = db.Close()
 	})
+}
+
+// TestTableMetaWireShapeForTheAnalyzeClock pins the JSON contract for the second
+// clock, which is the half a database cannot prove.
+//
+// `omitempty` on a nil pointer is what makes "never analyzed" arrive as an
+// ABSENT field. Drop it and the zero time.Time marshals as year 1 — a real-
+// looking timestamp for a computation that never happened, on the field a
+// consumer uses to decide whether it may show a row count at all.
+func TestTableMetaWireShapeForTheAnalyzeClock(t *testing.T) {
+	neverAnalyzed, err := json.Marshal(TableMeta{
+		Schema: "public", Name: "orders", RowEstimate: 42000, Analyzed: true,
+		TotalBytes: 8192, ColumnCount: 9,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(neverAnalyzed), "analyzed_at") {
+		t.Fatalf("a never-analyzed table must omit analyzed_at entirely: %s", neverAnalyzed)
+	}
+
+	at := time.Date(2026, 6, 26, 11, 0, 0, 0, time.UTC)
+	analyzed, err := json.Marshal(TableMeta{
+		Schema: "public", Name: "orders", RowEstimate: 42000, Analyzed: true,
+		AnalyzedAt: &at, TotalBytes: 8192, ColumnCount: 9,
+	})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(analyzed), `"analyzed_at":"2026-06-26T11:00:00Z"`) {
+		t.Fatalf("analyzed_at must be sent as an RFC3339 timestamp: %s", analyzed)
+	}
 }
