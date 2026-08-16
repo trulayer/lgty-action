@@ -74,17 +74,30 @@ for this collector (below). Use this instead:
 ```sql
 CREATE ROLE lgty_metadata_ro LOGIN PASSWORD '<generate one, store it nowhere but the CI secret>'
   NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS
-  CONNECTION LIMIT 3;
+  CONNECTION LIMIT 3; -- this binary opens at most 2 (SetMaxOpenConns(2) in
+  -- internal/collect/collect.go); 3 bounds a runaway or concurrent run
+  -- without being effectively unlimited
 
 GRANT REFERENCES ON ALL TABLES IN SCHEMA public TO lgty_metadata_ro;
 ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT REFERENCES ON TABLES TO lgty_metadata_ro;
 ```
 
+**This grant only covers the `public` schema — and the collector does not.**
+It scans every schema in your database except Postgres' own `pg_catalog` and
+`information_schema`, so if you keep tables outside `public`, repeat both the
+`GRANT` and `ALTER DEFAULT PRIVILEGES` lines above for each one, substituting
+its name. Skipping a schema is not an error anywhere in this pipeline: a
+table in an ungranted schema still shows up in the payload (`pg_class` is
+world-readable) but with `column_count: 0` and no foreign-key edges — a
+silent, plausible-looking gap, not a failure you'd notice. If a table you
+expect to see FK edges for doesn't have any, check this before assuming
+there genuinely are none.
+
 If a role other than the one running this DDL owns your migrations (e.g. a
-dedicated migration user), repeat the `ALTER DEFAULT PRIVILEGES` line with
-`FOR ROLE <that role>` — default privileges are per-grantor, not per-database.
-Repeat both `GRANT`/`ALTER DEFAULT PRIVILEGES` lines for any additional schema
-you want this collector to cover.
+dedicated migration user), also repeat the `ALTER DEFAULT PRIVILEGES` line
+with `FOR ROLE <that role>` — default privileges are per-grantor, not
+per-database, so a table created later by a different role won't inherit a
+default privilege set by this one.
 
 Build the DSN from that role with `sslmode` set explicitly (see below), store
 it as a CI secret — never inline it in a workflow file — and use that secret
@@ -96,13 +109,14 @@ This collector's queries — the three constants in
 [`internal/collect/collect.go`](internal/collect/collect.go) — read
 `pg_class`/`pg_stat_user_tables` (world-readable, no grant needed for row
 estimates or sizes) and four `information_schema` views for column counts and
-foreign-key edges. The privilege Postgres actually requires for those four
-views is not `SELECT`:
+foreign-key edges. Each of those views only shows a row if you hold **at
+least one** of a fixed list of privileges on the underlying table — and
+`SELECT` is not the only privilege that qualifies:
 
-| View this collector reads | Privilege its visibility check requires |
+| View this collector reads | Row is visible if you hold *any one* of |
 |---|---|
-| `columns`, `key_column_usage` | `SELECT, INSERT, UPDATE, REFERENCES` |
-| `table_constraints`, `referential_constraints` | `INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER` |
+| `columns`, `key_column_usage` | `SELECT`, `INSERT`, `UPDATE`, `REFERENCES` |
+| `table_constraints`, `referential_constraints` | `INSERT`, `UPDATE`, `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER` |
 
 Two consequences, both counter-intuitive:
 
@@ -128,13 +142,21 @@ Don't take this page's word for it — connect as the role and confirm a read
 is actually denied:
 
 ```bash
-psql "$DSN" -v ON_ERROR_STOP=1 -c "SELECT 1;" -c "SELECT * FROM <a table with rows> LIMIT 1;"
+psql "$DSN" -v ON_ERROR_STOP=1 -c "SELECT 1;" -c "SELECT 1 FROM <a table with rows> LIMIT 1;"
 ```
+
+Use `SELECT 1 FROM <table>`, not `SELECT * FROM <table>` — Postgres checks
+table-level `SELECT` privilege the moment a table is named in `FROM`,
+regardless of which columns you ask for, so `SELECT 1` triggers the exact
+same permission check without ever printing a real row into your terminal or
+CI log if the grant turns out to be wrong. The whole point of this check is
+confirming row data is unreachable; the command that confirms it shouldn't
+be the thing that leaks it.
 
 Run it with `-v ON_ERROR_STOP=1`. Without that flag, `psql` exits `0` even
 when a statement is denied, so a real `permission denied` and a clean run are
 indistinguishable from the exit code alone — a trap that's easy to hit while
-setting this up. The `SELECT 1` first is a control: it must succeed, so a
+setting this up. The `SELECT 1;` first is a control: it must succeed, so a
 broken connection string can't masquerade as "row access denied." With
 `ON_ERROR_STOP=1` set, the second statement should fail with
 `ERROR: permission denied for table <name>` and a non-zero exit.
