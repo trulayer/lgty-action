@@ -57,7 +57,7 @@ trust anything else in this document.
 
 | Input | Env | Default | Required | Description |
 |---|---|---|---|---|
-| `db-dsn` | `LGTY_DB_DSN` | — | **Yes**, unless `dry-run: true` | Read-only Postgres DSN, scoped to a **read-only role**. Store it as a CI secret; never inline it. |
+| `db-dsn` | `LGTY_DB_DSN` | — | **Yes**, unless `dry-run: true` | Postgres DSN for a role granted **`REFERENCES`, never `SELECT`** — see the [README "Set up the database role"](../README.md#set-up-the-database-role) for the exact grant and why. Store it as a CI secret; never inline it. |
 | `db-kind` | `LGTY_DB_KIND` | `postgres` | No | Database engine. Only `postgres` is supported today; any other value fails fast with a clear error. |
 
 ### Outputs
@@ -163,7 +163,7 @@ step, the same way you would for any other CI step you consider advisory:
 - uses: trulayer/lgty-action@v1.0.0
   continue-on-error: true
   with:
-    db-dsn: ${{ secrets.LGTY_READONLY_DSN }}
+    db-dsn: ${{ secrets.LGTY_METADATA_DB_DSN }}
 ```
 
 That failure is still logged and still visible in the job summary either way —

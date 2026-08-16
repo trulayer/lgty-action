@@ -20,7 +20,7 @@ inputs:
     required: false
     default: "https://api.lgty.ai"
   db-dsn:
-    description: "metadata only. Read-only Postgres DSN, scoped to a read-only role. Store it as a CI secret. Required unless dry-run is true."
+    description: "metadata only. Postgres DSN for a role granted REFERENCES only (never SELECT — see README 'Set up the database role'). Store it as a CI secret. Required unless dry-run is true."
     required: false
   db-kind:
     description: "metadata only. Database engine. Only \"postgres\" is supported currently."

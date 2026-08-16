@@ -63,11 +63,123 @@ This is **enforced in code**, not just promised. Every manifest passes through [
 
 Production Impact and Visual Review are each only as complete as the uploads that reach them. If a subcommand isn't installed on a repo, a workflow run fails, or its OIDC/network access isn't available, LGTY simply has **no data from that path** for that repo — and that is rendered as **not connected / uninstrumented**, never as a clean bill of health. A missing upload does not read as "no impact" or "no visual change"; there is no code path here, or in the backend that consumes either payload, that turns silence into a pass. This is the failure mode Codecov's silent-by-default upload step reproduces (`fail_ci_if_error`/`handle_no_reports_found` both default to `false` in `codecov/codecov-action`) and this action refuses to.
 
+## Set up the database role
+
+**Do not `GRANT SELECT ON ALL TABLES`.** That is the obvious grant, and it is
+wrong twice over: it hands this credential data-plane access — every row of
+every table, including whatever PII or secrets live in them, which is exactly
+what LGTY's architecture promises never to ask for — and it still doesn't work
+for this collector (below). Use this instead:
+
+```sql
+CREATE ROLE lgty_metadata_ro LOGIN PASSWORD '<generate one, store it nowhere but the CI secret>'
+  NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS
+  CONNECTION LIMIT 3;
+
+GRANT REFERENCES ON ALL TABLES IN SCHEMA public TO lgty_metadata_ro;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT REFERENCES ON TABLES TO lgty_metadata_ro;
+```
+
+If a role other than the one running this DDL owns your migrations (e.g. a
+dedicated migration user), repeat the `ALTER DEFAULT PRIVILEGES` line with
+`FOR ROLE <that role>` — default privileges are per-grantor, not per-database.
+Repeat both `GRANT`/`ALTER DEFAULT PRIVILEGES` lines for any additional schema
+you want this collector to cover.
+
+Build the DSN from that role with `sslmode` set explicitly (see below), store
+it as a CI secret — never inline it in a workflow file — and use that secret
+for `db-dsn` in the [workflow snippet below](#metadata).
+
+### Why `REFERENCES`, never `SELECT`
+
+This collector's queries — the three constants in
+[`internal/collect/collect.go`](internal/collect/collect.go) — read
+`pg_class`/`pg_stat_user_tables` (world-readable, no grant needed for row
+estimates or sizes) and four `information_schema` views for column counts and
+foreign-key edges. The privilege Postgres actually requires for those four
+views is not `SELECT`:
+
+| View this collector reads | Privilege its visibility check requires |
+|---|---|
+| `columns`, `key_column_usage` | `SELECT, INSERT, UPDATE, REFERENCES` |
+| `table_constraints`, `referential_constraints` | `INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER` |
+
+Two consequences, both counter-intuitive:
+
+1. **`SELECT` is absent from the last two.** A role granted `SELECT` on every
+   table would still return **zero foreign-key edges** — the "obvious" grant
+   is not just more dangerous, it's insufficient for the job.
+2. **`REFERENCES` is the only privilege present in all four rows that conveys
+   no ability to read or write a row.** It permits creating a foreign key
+   that references a table, and nothing else.
+
+### Skip `pg_monitor`
+
+Don't reach for `pg_monitor` as a "safer read-only" alternative — it's
+unnecessary (this collector needs no monitoring role) and it's worse than
+either option above: `pg_monitor` confers `pg_read_all_stats`, which exposes
+`pg_stat_statements` query text — including literal values from your
+application's own queries — the moment that extension is installed. That's a
+data leak sitting one `CREATE EXTENSION` away.
+
+### Verify the grant yourself
+
+Don't take this page's word for it — connect as the role and confirm a read
+is actually denied:
+
+```bash
+psql "$DSN" -v ON_ERROR_STOP=1 -c "SELECT 1;" -c "SELECT * FROM <a table with rows> LIMIT 1;"
+```
+
+Run it with `-v ON_ERROR_STOP=1`. Without that flag, `psql` exits `0` even
+when a statement is denied, so a real `permission denied` and a clean run are
+indistinguishable from the exit code alone — a trap that's easy to hit while
+setting this up. The `SELECT 1` first is a control: it must succeed, so a
+broken connection string can't masquerade as "row access denied." With
+`ON_ERROR_STOP=1` set, the second statement should fail with
+`ERROR: permission denied for table <name>` and a non-zero exit.
+
+### Set `sslmode`
+
+libpq's default, `prefer`, negotiates TLS but **silently falls back to
+plaintext** if the server declines it — not what you want for a credential
+crossing the public internet from a hosted CI runner. Set at least:
+
+```
+sslmode=require
+```
+
+and `sslmode=verify-full` wherever your provider's certificate chains to a
+trusted CA, for server-identity verification on top of encryption. Some
+managed Postgres proxies present a certificate that doesn't chain to the
+system trust store — Railway's is one — which makes `verify-full` impossible
+there without separately pinning that provider's CA; `require` still gets you
+encryption in that case, just not protection against an on-path server
+impersonating the real one.
+
+### What actually leaves your database
+
+Table names, row-count **estimates**, table sizes, column counts, and
+foreign-key edges. Never row values, column values, PII, or secrets — see
+[Metadata subcommand — what it sends](#metadata-subcommand--what-it-sends)
+above for the full field list. Confirm it yourself rather than trust this
+page: run with `dry-run: true` and it prints the exact payload with no
+network call.
+
+This exact grant — `REFERENCES` only, no `SELECT` — was tested against a live
+PostgreSQL 18.4 database: run as this role, the collector reproduced the same
+table count, foreign-key edges, and total column count as running the
+identical queries as superuser, with every row-data read attempted against it
+independently denied. That result describes what this grant *permits*, on the
+database it was tested against — it says nothing about *your* copy of it. Run
+the check above against your own database before you rely on it.
+
 ## Use it in GitHub Actions
 
 ### Metadata
 
-Grant the job OIDC (`id-token: write`) and give it a **read-only** DSN stored as a secret:
+Grant the job OIDC (`id-token: write`) and give it the DSN for the role you
+[set up above](#set-up-the-database-role), stored as a secret:
 
 ```yaml
 jobs:
@@ -79,11 +191,13 @@ jobs:
     steps:
       - uses: trulayer/lgty-action@v1.0.0
         with:
-          db-dsn: ${{ secrets.LGTY_READONLY_DSN }}
+          db-dsn: ${{ secrets.LGTY_METADATA_DB_DSN }}
           # dry-run: true   # print the payload instead of sending it
 ```
 
-Use a dedicated **read-only** Postgres role — the guard makes row reads impossible, and a read-only role makes them impossible twice.
+Use a dedicated role scoped to `REFERENCES`, never `SELECT` — see [Set up the
+database role](#set-up-the-database-role) above for the exact grant, why it's
+that privilege and not the obvious one, and how to verify it yourself.
 
 ### Renders
 
@@ -199,7 +313,7 @@ Metadata subcommand:
 
 | Env / input | Default | Purpose |
 |---|---|---|
-| `LGTY_DB_DSN` / `db-dsn` | — | read-only Postgres DSN, scoped role, stored as a CI secret. Required unless `dry-run: true` |
+| `LGTY_DB_DSN` / `db-dsn` | — | Postgres DSN for a role granted `REFERENCES` (never `SELECT`), stored as a CI secret. Required unless `dry-run: true` — see [Set up the database role](#set-up-the-database-role) |
 | `LGTY_DB_KIND` / `db-kind` | `postgres` | database engine — only `postgres` is supported currently |
 
 Renders subcommand:

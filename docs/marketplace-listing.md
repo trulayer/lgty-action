@@ -104,7 +104,7 @@ jobs:
     steps:
       - uses: trulayer/lgty-action@v1.0.0
         with:
-          db-dsn: ${{ secrets.LGTY_READONLY_DSN }}
+          db-dsn: ${{ secrets.LGTY_METADATA_DB_DSN }}
           # dry-run: true   # print the payload instead of sending it
 ```
 

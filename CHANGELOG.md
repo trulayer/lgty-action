@@ -12,6 +12,20 @@ moving major-version tag yet).
 
 Entries accumulate here and are cut into a version at release time.
 
+### Fixed
+- **README/docs pointed customers at the wrong Postgres grant.** The `db-dsn`
+  setup guidance previously said only "read-only role," which the obvious
+  `GRANT SELECT ON ALL TABLES` satisfies — but that grant is both data-plane
+  access (every row, readable) and insufficient for this collector (the
+  foreign-key-edge queries need `REFERENCES`, not `SELECT`, and return zero
+  edges under a `SELECT`-only grant). README now documents the exact DDL
+  (`GRANT REFERENCES`, not `SELECT`), why, a self-serve verification step, and
+  `sslmode` guidance — see [Set up the database
+  role](README.md#set-up-the-database-role). Also fixed a stale example
+  secret name (`LGTY_READONLY_DSN` → `LGTY_METADATA_DB_DSN`) in the README,
+  `docs/inputs-outputs.md`, and `docs/marketplace-listing.md` examples — not a
+  contract change, just a broken first copy-paste.
+
 ## [1.0.0] - 2026-08-12
 
 First tagged, signed public release. Pin to `@v1.0.0` or later — see the
