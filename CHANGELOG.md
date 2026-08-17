@@ -12,8 +12,29 @@ moving major-version tag yet).
 
 Entries accumulate here and are cut into a version at release time.
 
+## [1.1.0] - 2026-08-16
+
+### Added
+- **`tables[].analyzed_at` in the metadata payload:** the timestamp the
+  database itself last computed each table's row estimate (`GREATEST` of
+  `pg_stat_user_tables.last_analyze` / `last_autoanalyze`). Omitted, not
+  zeroed, when the table has never been analyzed — that absence is itself
+  meaningful and lets a consumer decline to date an estimate rather than
+  invent a date for it. Optional field, additive to the existing payload
+  shape; older pinned versions of this action are unaffected.
+
 ### Fixed
-- **README/docs pointed customers at the wrong Postgres grant.** The `db-dsn`
+- **A malformed `LGTY_DB_DSN` could leak the connection string into CI
+  logs.** `LGTY_DB_DSN` was the one input read via raw `os.Getenv`, bypassing
+  the trimming applied to every other input — a value with stray leading
+  whitespace (common from CI secret stores) failed the driver's
+  `postgres://` scheme check and fell through to keyword/value parsing,
+  whose own error message quotes the connection string (host, port,
+  database, role) back into the log. The DSN is now trimmed and parsed with
+  `pgx.ParseConfig` at config load, and a parse failure reports only the
+  value's length and whether it carried a URL scheme — never the value
+  itself.
+- README/docs pointed customers at the wrong Postgres grant. The `db-dsn`
   setup guidance previously said only "read-only role," which the obvious
   `GRANT SELECT ON ALL TABLES` satisfies — but that grant is both data-plane
   access (every row, readable) and insufficient for this collector (the
@@ -102,5 +123,6 @@ directly.
 - Developer docs: the [inputs/outputs contract](docs/inputs-outputs.md) and the
   [Marketplace listing draft](docs/marketplace-listing.md).
 
-[Unreleased]: https://github.com/trulayer/lgty-action/compare/v1.0.0...main
+[Unreleased]: https://github.com/trulayer/lgty-action/compare/v1.1.0...main
+[1.1.0]: https://github.com/trulayer/lgty-action/releases/tag/v1.1.0
 [1.0.0]: https://github.com/trulayer/lgty-action/releases/tag/v1.0.0
