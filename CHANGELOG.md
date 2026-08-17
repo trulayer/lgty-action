@@ -21,9 +21,11 @@ Entries accumulate here and are cut into a version at release time.
   a tag, a `refs/...` ref — stops the run at startup with a message naming the
   input, instead of being uploaded as an attribution nothing can match.
   Leaving `commit-sha` unset remains the normal path and is unaffected; so is
-  an uppercase SHA, which the ingest API accepts. `workspace` and `renders-dir`
-  are trimmed on read for the same reason, and a `renders-dir` of nothing but
-  whitespace now trips the same refusal as an unset one.
+  an uppercase SHA, which the ingest API accepts. `LGTY_WORKSPACE` (a payload
+  field, not an action input) and the `renders-dir` input are trimmed on read
+  for the same reason. A `renders-dir` of nothing but whitespace now stops the
+  run, and says the value was only whitespace rather than claiming it was
+  never set.
 
 ## [1.1.0] - 2026-08-16
 

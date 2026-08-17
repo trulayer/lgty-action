@@ -1,7 +1,6 @@
 package config
 
 import (
-	"fmt"
 	"strings"
 	"testing"
 	"unicode/utf8"
@@ -159,28 +158,34 @@ func TestLoadRenders_WhitespaceOnlyCommitSHAFallsBackToAutoResolve(t *testing.T)
 // run. Sending it would attribute the captures to a commit that matches
 // nothing, and a reviewer looking at the result has no way to tell.
 func TestLoadRenders_RejectsImplausibleCommitSHA(t *testing.T) {
-	for name, raw := range map[string]string{
-		"abbreviated":        "deadbee",
-		"branch name":        "main",
-		"tag":                "v1.2.3",
-		"39 hex characters":  "deadbeefdeadbeefdeadbeefdeadbeefdeadbee",
-		"41 hex characters":  "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef0",
-		"sha-256 length":     strings.Repeat("a", 64),
-		"non-hex characters": "zzzzbeefdeadbeefdeadbeefdeadbeefdeadbeef",
-		"internal space":     "deadbeefdeadbeef deadbeefdeadbeefdeadbee",
-		"a full ref":         "refs/heads/main",
+	// wantFault is the phrase that has to name what is actually wrong. The
+	// message must not blame the length of a value whose length is right —
+	// "zzzz…" is exactly 40 characters, and "it is 40 characters, not 40"
+	// would send someone counting when the fault is a character they mistyped.
+	for name, tc := range map[string]struct{ raw, wantFault string }{
+		"abbreviated":       {"deadbee", "it is 7 characters, not 40"},
+		"branch name":       {"main", "it is 4 characters, not 40"},
+		"tag":               {"v1.2.3", "it is 6 characters, not 40"},
+		"39 hex characters": {"deadbeefdeadbeefdeadbeefdeadbeefdeadbee", "it is 39 characters, not 40"},
+		"41 hex characters": {"deadbeefdeadbeefdeadbeefdeadbeefdeadbeef0", "it is 41 characters, not 40"},
+		"sha-256 length":    {strings.Repeat("a", 64), "it is 64 characters, not 40"},
+		"a full ref":        {"refs/heads/main", "it is 15 characters, not 40"},
 		// Multi-byte input: the message counts characters, so it must count
 		// runes and not bytes, or it reports a length the customer cannot see.
-		"non-ascii": "café",
+		"non-ascii": {"café", "it is 4 characters, not 40"},
+		// Right length, wrong alphabet — the two cases the length branch
+		// would misdescribe.
+		"non-hex characters": {"zzzzbeefdeadbeefdeadbeefdeadbeefdeadbeef", "not all 40 of its characters are hex digits"},
+		"internal space":     {"deadbeefdeadbeef deadbeefdeadbeefdeadbee", "not all 40 of its characters are hex digits"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			isolateRendersEnv(t)
 			t.Setenv("LGTY_RENDERS_DIR", "captures")
-			t.Setenv("LGTY_COMMIT_SHA", raw)
+			t.Setenv("LGTY_COMMIT_SHA", tc.raw)
 
 			_, err := LoadRenders()
 			if err == nil {
-				t.Fatalf("expected an error for LGTY_COMMIT_SHA=%q, got none", raw)
+				t.Fatalf("expected an error for LGTY_COMMIT_SHA=%q, got none", tc.raw)
 			}
 			msg := err.Error()
 			if !strings.Contains(msg, "LGTY_COMMIT_SHA") {
@@ -189,10 +194,11 @@ func TestLoadRenders_RejectsImplausibleCommitSHA(t *testing.T) {
 			if !strings.Contains(msg, "40-character hex") {
 				t.Errorf("error = %q, want it to state the expected form", msg)
 			}
-			// The count the message reports has to be the count the customer
-			// sees in their own config, which for a multi-byte value is runes.
-			if want := fmt.Sprintf("it is %d characters", utf8.RuneCountInString(raw)); !strings.Contains(msg, want) {
-				t.Errorf("error = %q, want it to report %q", msg, want)
+			if !strings.Contains(msg, tc.wantFault) {
+				t.Errorf("error = %q, want it to report the fault as %q", msg, tc.wantFault)
+			}
+			if utf8.RuneCountInString(tc.raw) == 40 && strings.Contains(msg, "not 40") {
+				t.Errorf("error = %q blames the length of a value that is exactly 40 characters", msg)
 			}
 		})
 	}
@@ -228,14 +234,19 @@ func TestLoadRenders_TrimsRendersDirWhitespace(t *testing.T) {
 	}
 }
 
-// A renders-dir of nothing but whitespace is still no directory, and must trip
-// the same refusal as an unset one rather than send us looking for "".
+// A renders-dir of nothing but whitespace is still no directory and must stop
+// the run rather than send us looking for "" — but it was set by someone, so
+// reporting it as missing would point them at the wrong line of their workflow.
 func TestLoadRenders_RejectsWhitespaceOnlyRendersDir(t *testing.T) {
 	isolateRendersEnv(t)
 	t.Setenv("LGTY_RENDERS_DIR", "  \n ")
 
-	if _, err := LoadRenders(); err == nil {
+	_, err := LoadRenders()
+	if err == nil {
 		t.Fatal("expected an error for a whitespace-only LGTY_RENDERS_DIR")
+	}
+	if !strings.Contains(err.Error(), "only whitespace") {
+		t.Errorf("error = %q, want it to say the value was only whitespace rather than missing", err)
 	}
 }
 

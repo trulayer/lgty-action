@@ -112,6 +112,7 @@ type RendersConfig struct {
 // LoadRenders reads the renders subcommand's configuration from LGTY_*
 // environment variables and validates it.
 func LoadRenders() (RendersConfig, error) {
+	rawRendersDir := os.Getenv("LGTY_RENDERS_DIR")
 	c := RendersConfig{
 		BackendURL: env("LGTY_BACKEND_URL", "https://api.lgty.ai"),
 		RendersDir: env("LGTY_RENDERS_DIR", ""),
@@ -125,6 +126,13 @@ func LoadRenders() (RendersConfig, error) {
 		OIDCAudience: env("LGTY_RENDERS_OIDC_AUDIENCE", "https://api.lgty.ai/renders"),
 	}
 	if c.RendersDir == "" {
+		if rawRendersDir != "" {
+			// Set, but nothing survived trimming — the same distinction
+			// LoadMetadata draws for the DSN, and for the same reason: "is
+			// required" would assert they never set it and send them looking
+			// at the wrong line of their workflow.
+			return c, errors.New("LGTY_RENDERS_DIR is set but contains only whitespace — point `renders-dir` at the directory holding manifest.json")
+		}
 		return c, errors.New("LGTY_RENDERS_DIR is required (set `renders-dir` in action.yml)")
 	}
 	// Empty is the normal, correct state: it means "resolve the commit
@@ -134,10 +142,7 @@ func LoadRenders() (RendersConfig, error) {
 	// here by name. Uploading it instead would attribute the run to a commit
 	// nothing matches, and the reviewer has no way to see that happened.
 	if c.CommitSHA != "" && !fullCommitSHA.MatchString(c.CommitSHA) {
-		return c, fmt.Errorf("LGTY_COMMIT_SHA=%q is not a commit id: it must be the full 40-character hex SHA of the commit you rendered, but it is %d characters. "+
-			"An abbreviated SHA, a branch name or a tag addresses nothing the ingest API can match, so these captures would be attributed to no commit at all. "+
-			"Leave `commit-sha` unset unless you are running outside a standard GitHub Actions checkout — this run resolves the commit itself",
-			c.CommitSHA, utf8.RuneCountInString(c.CommitSHA))
+		return c, malformedCommitSHAError(c.CommitSHA)
 	}
 	return c, nil
 }
@@ -146,6 +151,21 @@ func LoadRenders() (RendersConfig, error) {
 // the ingest API lowercases before it compares, so an uppercase SHA is a
 // configuration that works today and must not start failing here.
 var fullCommitSHA = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
+
+// malformedCommitSHAError names which way the value is wrong. Reporting a
+// length unconditionally would misdirect the case that most looks like a
+// commit id: "…o…" typed for "…0…" is exactly 40 characters, and being told
+// the length is wrong sends someone counting instead of looking.
+func malformedCommitSHAError(sha string) error {
+	fault := fmt.Sprintf("it is %d characters, not 40", utf8.RuneCountInString(sha))
+	if utf8.RuneCountInString(sha) == 40 {
+		fault = "not all 40 of its characters are hex digits (0-9, a-f)"
+	}
+	return fmt.Errorf("LGTY_COMMIT_SHA=%q is not a commit id: it must be the full 40-character hex SHA of the commit you rendered, but %s. "+
+		"An abbreviated SHA, a branch name, a tag or a mistyped character addresses nothing the ingest API can match, so these captures would be attributed to no commit at all. "+
+		"Leave `commit-sha` unset unless you are running outside a standard GitHub Actions checkout — this run resolves the commit itself",
+		sha, fault)
+}
 
 func env(key, def string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
