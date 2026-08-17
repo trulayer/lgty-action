@@ -86,7 +86,7 @@ PII, and no secrets.
 ```json
 {
   "workspace": "",
-  "repo": "trulayer/kindscan-backend",
+  "repo": "owner/repo",
   "collected_at": "2026-07-26T12:00:00Z",
   "tables": [
     {
