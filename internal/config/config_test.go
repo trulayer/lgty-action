@@ -412,13 +412,13 @@ func TestLoadMetadata_RejectsNonPostgres(t *testing.T) {
 func TestLoadMetadata_RepoFallsBackToGitHubRepository(t *testing.T) {
 	isolateEnv(t)
 	t.Setenv("LGTY_DRY_RUN", "true")
-	t.Setenv("GITHUB_REPOSITORY", "trulayer/kindscan-backend")
+	t.Setenv("GITHUB_REPOSITORY", "meridian/api")
 
 	c, err := LoadMetadata()
 	if err != nil {
 		t.Fatalf("LoadMetadata() error = %v", err)
 	}
-	if c.Repo != "trulayer/kindscan-backend" {
+	if c.Repo != "meridian/api" {
 		t.Errorf("Repo = %q, want GITHUB_REPOSITORY fallback", c.Repo)
 	}
 }
@@ -427,7 +427,7 @@ func TestLoadMetadata_ExplicitRepoOverridesGitHubRepository(t *testing.T) {
 	isolateEnv(t)
 	t.Setenv("LGTY_DRY_RUN", "true")
 	t.Setenv("LGTY_REPO", "acme/service")
-	t.Setenv("GITHUB_REPOSITORY", "trulayer/kindscan-backend")
+	t.Setenv("GITHUB_REPOSITORY", "meridian/api")
 
 	c, err := LoadMetadata()
 	if err != nil {
