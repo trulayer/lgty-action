@@ -108,6 +108,127 @@ func TestLoadRenders_Overrides(t *testing.T) {
 	}
 }
 
+// A commit id with whitespace attached is the quietest bad input this binary
+// takes: it does not fail to parse, it addresses a commit. Trimming it here is
+// what keeps the captures on the commit the customer meant.
+func TestLoadRenders_TrimsCommitSHAWhitespace(t *testing.T) {
+	const want = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+	for name, raw := range map[string]string{
+		"trailing newline": want + "\n",
+		"leading newline":  "\n" + want,
+		"trailing space":   want + " ",
+		"surrounding":      "\n  " + want + "  \n",
+		"carriage return":  want + "\r\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			isolateRendersEnv(t)
+			t.Setenv("LGTY_RENDERS_DIR", "captures")
+			t.Setenv("LGTY_COMMIT_SHA", raw)
+
+			c, err := LoadRenders()
+			if err != nil {
+				t.Fatalf("LoadRenders() error = %v", err)
+			}
+			if c.CommitSHA != want {
+				t.Errorf("CommitSHA = %q, want %q", c.CommitSHA, want)
+			}
+		})
+	}
+}
+
+// Whitespace all the way through is not a commit id, and there is a right
+// answer available: empty means "resolve the commit from the CI environment",
+// which is the normal path and more trustworthy than any override.
+func TestLoadRenders_WhitespaceOnlyCommitSHAFallsBackToAutoResolve(t *testing.T) {
+	isolateRendersEnv(t)
+	t.Setenv("LGTY_RENDERS_DIR", "captures")
+	t.Setenv("LGTY_COMMIT_SHA", "  \n\t ")
+
+	c, err := LoadRenders()
+	if err != nil {
+		t.Fatalf("LoadRenders() error = %v", err)
+	}
+	if c.CommitSHA != "" {
+		t.Errorf("CommitSHA = %q, want empty so the run auto-resolves the commit", c.CommitSHA)
+	}
+}
+
+// A value that survives trimming and still is not a commit id must stop the
+// run. Sending it would attribute the captures to a commit that matches
+// nothing, and a reviewer looking at the result has no way to tell.
+func TestLoadRenders_RejectsImplausibleCommitSHA(t *testing.T) {
+	for name, raw := range map[string]string{
+		"abbreviated":        "deadbee",
+		"branch name":        "main",
+		"tag":                "v1.2.3",
+		"39 hex characters":  "deadbeefdeadbeefdeadbeefdeadbeefdeadbee",
+		"41 hex characters":  "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef0",
+		"sha-256 length":     strings.Repeat("a", 64),
+		"non-hex characters": "zzzzbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+		"internal space":     "deadbeefdeadbeef deadbeefdeadbeefdeadbee",
+		"a full ref":         "refs/heads/main",
+	} {
+		t.Run(name, func(t *testing.T) {
+			isolateRendersEnv(t)
+			t.Setenv("LGTY_RENDERS_DIR", "captures")
+			t.Setenv("LGTY_COMMIT_SHA", raw)
+
+			_, err := LoadRenders()
+			if err == nil {
+				t.Fatalf("expected an error for LGTY_COMMIT_SHA=%q, got none", raw)
+			}
+			msg := err.Error()
+			if !strings.Contains(msg, "LGTY_COMMIT_SHA") {
+				t.Errorf("error = %q, want it to name the input responsible", msg)
+			}
+			if !strings.Contains(msg, "40-character hex") {
+				t.Errorf("error = %q, want it to state the expected form", msg)
+			}
+		})
+	}
+}
+
+// The ingest API lowercases a commit id before comparing it, so an uppercase
+// SHA is a working configuration. This guard must not break it.
+func TestLoadRenders_AcceptsUppercaseCommitSHA(t *testing.T) {
+	const want = "DEADBEEFDEADBEEFDEADBEEFDEADBEEFDEADBEEF"
+	isolateRendersEnv(t)
+	t.Setenv("LGTY_RENDERS_DIR", "captures")
+	t.Setenv("LGTY_COMMIT_SHA", want)
+
+	c, err := LoadRenders()
+	if err != nil {
+		t.Fatalf("LoadRenders() error = %v", err)
+	}
+	if c.CommitSHA != want {
+		t.Errorf("CommitSHA = %q, want %q unchanged", c.CommitSHA, want)
+	}
+}
+
+func TestLoadRenders_TrimsRendersDirWhitespace(t *testing.T) {
+	isolateRendersEnv(t)
+	t.Setenv("LGTY_RENDERS_DIR", "  captures\n")
+
+	c, err := LoadRenders()
+	if err != nil {
+		t.Fatalf("LoadRenders() error = %v", err)
+	}
+	if c.RendersDir != "captures" {
+		t.Errorf("RendersDir = %q, want %q", c.RendersDir, "captures")
+	}
+}
+
+// A renders-dir of nothing but whitespace is still no directory, and must trip
+// the same refusal as an unset one rather than send us looking for "".
+func TestLoadRenders_RejectsWhitespaceOnlyRendersDir(t *testing.T) {
+	isolateRendersEnv(t)
+	t.Setenv("LGTY_RENDERS_DIR", "  \n ")
+
+	if _, err := LoadRenders(); err == nil {
+		t.Fatal("expected an error for a whitespace-only LGTY_RENDERS_DIR")
+	}
+}
+
 func TestLoadMetadata_Defaults(t *testing.T) {
 	isolateEnv(t)
 	t.Setenv("LGTY_DRY_RUN", "true") // avoids the DSN requirement
@@ -315,6 +436,23 @@ func TestLoadMetadata_Overrides(t *testing.T) {
 	}
 	if c.Workspace != "ws_123" {
 		t.Errorf("Workspace = %q, want ws_123", c.Workspace)
+	}
+}
+
+// The workspace identifier is looked up verbatim by the ingest API, so a
+// newline picked up from a secret store turns a valid workspace into an
+// unknown one.
+func TestLoadMetadata_TrimsWorkspaceWhitespace(t *testing.T) {
+	isolateEnv(t)
+	t.Setenv("LGTY_DRY_RUN", "true")
+	t.Setenv("LGTY_WORKSPACE", "\n ws_123 \n")
+
+	c, err := LoadMetadata()
+	if err != nil {
+		t.Fatalf("LoadMetadata() error = %v", err)
+	}
+	if c.Workspace != "ws_123" {
+		t.Errorf("Workspace = %q, want %q", c.Workspace, "ws_123")
 	}
 }
 

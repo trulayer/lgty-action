@@ -343,7 +343,7 @@ Renders subcommand:
 | Env / input | Default | Purpose |
 |---|---|---|
 | `LGTY_RENDERS_DIR` / `renders-dir` | — | directory holding `manifest.json` and the PNGs it names. Required when `command: renders` |
-| `LGTY_COMMIT_SHA` / `commit-sha` | — | override the resolved commit SHA. Leave unset — the action resolves the pull request's real head itself |
+| `LGTY_COMMIT_SHA` / `commit-sha` | — | override the resolved commit SHA. Leave unset — the action resolves the pull request's real head itself. When set, it must be a full 40-character hex commit id; anything else stops the run |
 
 This action defines **no step outputs** for either subcommand — it is an uploader, not a gate, and it
 returns no verdict for a later step to branch on. For the precise, versioned

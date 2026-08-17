@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -46,7 +47,7 @@ func LoadMetadata() (MetadataConfig, error) {
 		// far from the whitespace that caused it.
 		DBDSN:        strings.TrimSpace(rawDSN),
 		Repo:         env("LGTY_REPO", os.Getenv("GITHUB_REPOSITORY")),
-		Workspace:    os.Getenv("LGTY_WORKSPACE"),
+		Workspace:    env("LGTY_WORKSPACE", ""),
 		DryRun:       boolEnv("LGTY_DRY_RUN", false),
 		OIDCAudience: env("LGTY_OIDC_AUDIENCE", "https://api.lgty.ai/ingest/metadata"),
 	}
@@ -100,7 +101,8 @@ type RendersConfig struct {
 	// CommitSHA overrides auto-detection. Leave empty in normal CI use: the
 	// binary resolves the PR's actual head SHA itself (see internal/cienv),
 	// which is NOT $GITHUB_SHA on a pull_request event — that env var is the
-	// ephemeral merge commit, not the PR's own head.
+	// ephemeral merge commit, not the PR's own head. When set, it is the full
+	// 40-character hex commit id — LoadRenders refuses anything else.
 	CommitSHA    string
 	DryRun       bool   // if true, print the capture manifest instead of uploading; no OIDC token or network call is made
 	OIDCAudience string // DISTINCT from the metadata audience by design — see docs/inputs-outputs.md
@@ -110,17 +112,39 @@ type RendersConfig struct {
 // environment variables and validates it.
 func LoadRenders() (RendersConfig, error) {
 	c := RendersConfig{
-		BackendURL:   env("LGTY_BACKEND_URL", "https://api.lgty.ai"),
-		RendersDir:   os.Getenv("LGTY_RENDERS_DIR"),
-		CommitSHA:    os.Getenv("LGTY_COMMIT_SHA"),
+		BackendURL: env("LGTY_BACKEND_URL", "https://api.lgty.ai"),
+		RendersDir: env("LGTY_RENDERS_DIR", ""),
+		// Trimmed, like every other value read here. A workflow expression or
+		// secret store routinely hands back a value with a newline attached to
+		// one end, and a commit id is the input where that goes quietest: it
+		// addresses a commit rather than failing to parse, so nothing on the
+		// way to the reviewer is in a position to notice.
+		CommitSHA:    env("LGTY_COMMIT_SHA", ""),
 		DryRun:       boolEnv("LGTY_DRY_RUN", false),
 		OIDCAudience: env("LGTY_RENDERS_OIDC_AUDIENCE", "https://api.lgty.ai/renders"),
 	}
 	if c.RendersDir == "" {
 		return c, errors.New("LGTY_RENDERS_DIR is required (set `renders-dir` in action.yml)")
 	}
+	// Empty is the normal, correct state: it means "resolve the commit
+	// yourself", which is what this binary is built to do. Non-empty is a
+	// claim about which commit these captures describe, and a claim that
+	// cannot be true — an abbreviated SHA, a branch name, a tag — is refused
+	// here by name. Uploading it instead would attribute the run to a commit
+	// nothing matches, and the reviewer has no way to see that happened.
+	if c.CommitSHA != "" && !fullCommitSHA.MatchString(c.CommitSHA) {
+		return c, fmt.Errorf("LGTY_COMMIT_SHA=%q is not a commit id: it must be the full 40-character hex SHA of the commit you rendered, but it is %d characters. "+
+			"An abbreviated SHA, a branch name or a tag addresses nothing the ingest API can match, so these captures would be attributed to no commit at all. "+
+			"Leave `commit-sha` unset unless you are running outside a standard GitHub Actions checkout — this run resolves the commit itself",
+			c.CommitSHA, len(c.CommitSHA))
+	}
 	return c, nil
 }
+
+// fullCommitSHA matches a complete git commit id. Case-insensitive on purpose:
+// the ingest API lowercases before it compares, so an uppercase SHA is a
+// configuration that works today and must not start failing here.
+var fullCommitSHA = regexp.MustCompile(`^[0-9a-fA-F]{40}$`)
 
 func env(key, def string) string {
 	if v := strings.TrimSpace(os.Getenv(key)); v != "" {
