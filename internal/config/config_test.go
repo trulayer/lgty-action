@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 )
 
 // isolateEnv clears every variable LoadMetadata reads so each case starts
@@ -167,6 +169,9 @@ func TestLoadRenders_RejectsImplausibleCommitSHA(t *testing.T) {
 		"non-hex characters": "zzzzbeefdeadbeefdeadbeefdeadbeefdeadbeef",
 		"internal space":     "deadbeefdeadbeef deadbeefdeadbeefdeadbee",
 		"a full ref":         "refs/heads/main",
+		// Multi-byte input: the message counts characters, so it must count
+		// runes and not bytes, or it reports a length the customer cannot see.
+		"non-ascii": "café",
 	} {
 		t.Run(name, func(t *testing.T) {
 			isolateRendersEnv(t)
@@ -183,6 +188,11 @@ func TestLoadRenders_RejectsImplausibleCommitSHA(t *testing.T) {
 			}
 			if !strings.Contains(msg, "40-character hex") {
 				t.Errorf("error = %q, want it to state the expected form", msg)
+			}
+			// The count the message reports has to be the count the customer
+			// sees in their own config, which for a multi-byte value is runes.
+			if want := fmt.Sprintf("it is %d characters", utf8.RuneCountInString(raw)); !strings.Contains(msg, want) {
+				t.Errorf("error = %q, want it to report %q", msg, want)
 			}
 		})
 	}

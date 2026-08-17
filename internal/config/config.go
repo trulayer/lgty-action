@@ -15,6 +15,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -136,7 +137,7 @@ func LoadRenders() (RendersConfig, error) {
 		return c, fmt.Errorf("LGTY_COMMIT_SHA=%q is not a commit id: it must be the full 40-character hex SHA of the commit you rendered, but it is %d characters. "+
 			"An abbreviated SHA, a branch name or a tag addresses nothing the ingest API can match, so these captures would be attributed to no commit at all. "+
 			"Leave `commit-sha` unset unless you are running outside a standard GitHub Actions checkout — this run resolves the commit itself",
-			c.CommitSHA, len(c.CommitSHA))
+			c.CommitSHA, utf8.RuneCountInString(c.CommitSHA))
 	}
 	return c, nil
 }
