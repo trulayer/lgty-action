@@ -12,6 +12,21 @@ moving major-version tag yet).
 
 Entries accumulate here and are cut into a version at release time.
 
+### Fixed
+- **`commit-sha` was read without trimming, and never checked.** It was one of
+  the last inputs read via raw `os.Getenv`, so a value carrying a newline from
+  a workflow expression or secret store was passed through as-is. It is now
+  trimmed like every other input, and a value that survives trimming without
+  being a full 40-character hex commit id — an abbreviated SHA, a branch name,
+  a tag, a `refs/...` ref — stops the run at startup with a message naming the
+  input, instead of being uploaded as an attribution nothing can match.
+  Leaving `commit-sha` unset remains the normal path and is unaffected; so is
+  an uppercase SHA, which the ingest API accepts. `LGTY_WORKSPACE` (a payload
+  field, not an action input) and the `renders-dir` input are trimmed on read
+  for the same reason. A `renders-dir` of nothing but whitespace now stops the
+  run, and says the value was only whitespace rather than claiming it was
+  never set.
+
 ## [1.1.0] - 2026-08-16
 
 ### Added

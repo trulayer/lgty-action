@@ -200,7 +200,7 @@ manifest in that directory names.
 | Input | Env | Default | Required | Description |
 |---|---|---|---|---|
 | `renders-dir` | `LGTY_RENDERS_DIR` | — | **Yes** | Directory containing `manifest.json` (below) and the PNG files it names. |
-| `commit-sha` | `LGTY_COMMIT_SHA` | — (auto-resolved) | No | Overrides the commit this run's captures are attributed to. Leave unset in normal use. |
+| `commit-sha` | `LGTY_COMMIT_SHA` | — (auto-resolved) | No | Overrides the commit this run's captures are attributed to. Leave unset in normal use. When set, must be a full 40-character hex commit id. |
 
 ### Commit SHA resolution
 
@@ -218,6 +218,14 @@ own environment — you do not compute or pass one:
 
 Set `commit-sha` explicitly only if you are running this outside a standard
 GitHub Actions checkout of the commit you rendered.
+
+If you do set it, it must be the **full 40-character hex commit id** —
+surrounding whitespace is trimmed first, so a value your CI hands back with a
+trailing newline still works. An abbreviated SHA, a branch name, a tag or a
+`refs/...` ref is refused at startup with a message naming the input, because a
+commit id the ingest API cannot match would attribute your captures to no
+commit at all — and nothing later in the run, or in the reviewer's brief, would
+show that it happened.
 
 ### The manifest — `manifest.json`
 

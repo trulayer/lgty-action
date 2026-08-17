@@ -37,7 +37,10 @@ inputs:
       renders only. Overrides the commit a capture run is attributed to.
       Leave unset in normal use — the action resolves the pull request's own
       head SHA itself (never $GITHUB_SHA, which on a pull_request event is
-      GitHub's ephemeral merge commit, not the PR's head).
+      GitHub's ephemeral merge commit, not the PR's head). If you do set it,
+      it must be a full 40-character hex commit id; surrounding whitespace is
+      trimmed, but anything else stops the run rather than attributing your
+      captures to a commit that matches nothing.
     required: false
   dry-run:
     description: >
